@@ -53,3 +53,10 @@ export const referrals = sqliteTable("referrals", {
   inviteeEmail: text("invitee_email").notNull().references(() => users.email),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("referrals_invitee_idx").on(table.inviteeEmail)]);
+
+export const inventory = sqliteTable("inventory", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  itemKey: text("item_key").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  acquiredAt: text("acquired_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [primaryKey({ columns: [table.userEmail, table.itemKey] })]);

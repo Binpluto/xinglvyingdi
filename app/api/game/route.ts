@@ -76,6 +76,14 @@ async function dashboard(email: string) {
   `).all();
   const referralCount = await db.prepare("SELECT COUNT(*) AS count FROM referrals WHERE referrer_email = ?")
     .bind(email).first<{ count: number }>();
+  const focusHistory = await db.prepare(`
+    SELECT id, minutes, created_at FROM focus_sessions
+    WHERE user_email = ? ORDER BY id DESC LIMIT 10
+  `).bind(email).all();
+  const inventory = await db.prepare(`
+    SELECT item_key, quantity, acquired_at FROM inventory
+    WHERE user_email = ? ORDER BY acquired_at DESC
+  `).bind(email).all();
 
   return {
     user: {
@@ -89,6 +97,8 @@ async function dashboard(email: string) {
       referralCount: referralCount?.count ?? 0,
     },
     quests: quests.results,
+    focusHistory: focusHistory.results,
+    inventory: inventory.results,
     team: team ? { ...team, members: members.results } : null,
     leaderboard: leaderboard.results,
   };
@@ -108,7 +118,7 @@ export async function POST(request: Request) {
   try {
     const identity = await currentUser();
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
-    const body = await request.json() as { action?: string; questId?: number; minutes?: number; code?: string; name?: string };
+    const body = await request.json() as { action?: string; questId?: number; minutes?: number; code?: string; name?: string; title?: string; detail?: string; type?: string; itemKey?: string; price?: number };
     const db = env.DB;
 
     if (body.action === "completeQuest") {
@@ -123,12 +133,38 @@ export async function POST(request: Request) {
             .bind(quest.reward, Math.ceil(quest.reward / 2), identity.email),
         ]);
       }
+    } else if (body.action === "createQuest") {
+      const title = (body.title ?? "").trim().slice(0, 40);
+      const detail = (body.detail ?? "").trim().slice(0, 100);
+      const type = ["主线", "日常", "支线"].includes(body.type ?? "") ? body.type : "支线";
+      if (title.length < 2) return Response.json({ error: "任务名称至少需要 2 个字" }, { status: 400 });
+      const reward = type === "主线" ? 80 : type === "日常" ? 30 : 45;
+      await db.prepare("INSERT INTO quests (user_email, title, detail, type, reward) VALUES (?, ?, ?, ?, ?)")
+        .bind(identity.email, title, detail || "由旅行者亲自制定的冒险委托", type, reward).run();
     } else if (body.action === "focus") {
       const minutes = Math.max(1, Math.min(180, Number(body.minutes) || 25));
       await db.batch([
         db.prepare("INSERT INTO focus_sessions (user_email, minutes) VALUES (?, ?)").bind(identity.email, minutes),
         db.prepare("UPDATE users SET focus_minutes = focus_minutes + ?, xp = xp + ?, coins = coins + ? WHERE email = ?")
           .bind(minutes, minutes * 2, Math.ceil(minutes / 2), identity.email),
+      ]);
+    } else if (body.action === "buyItem") {
+      const catalog: Record<string, { price: number }> = {
+        "rest-pass": { price: 80 },
+        "movie-night": { price: 120 },
+        "wish-tea": { price: 60 },
+        "adventure-day": { price: 260 },
+      };
+      const item = catalog[body.itemKey ?? ""];
+      if (!item) return Response.json({ error: "奖励不存在" }, { status: 404 });
+      const balance = await db.prepare("SELECT coins FROM users WHERE email = ?").bind(identity.email).first<{ coins: number }>();
+      if ((balance?.coins ?? 0) < item.price) return Response.json({ error: "星辉不足，完成更多任务后再来吧" }, { status: 400 });
+      await db.batch([
+        db.prepare("UPDATE users SET coins = coins - ? WHERE email = ?").bind(item.price, identity.email),
+        db.prepare(`
+          INSERT INTO inventory (user_email, item_key, quantity) VALUES (?, ?, 1)
+          ON CONFLICT(user_email, item_key) DO UPDATE SET quantity = quantity + 1, acquired_at = CURRENT_TIMESTAMP
+        `).bind(identity.email, body.itemKey),
       ]);
     } else if (body.action === "redeemInvite") {
       const code = (body.code ?? "").trim().toUpperCase();
