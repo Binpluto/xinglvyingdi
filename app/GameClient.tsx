@@ -175,5 +175,48 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
 }
 
 function World({ data }: { data: GameData }) {
-  return <section className="world-panel"><div className="world-hero"><span className="chapter">星旅世界 · 实时演算</span><h2>世界实力排行榜</h2><p>实力值 = 全队累计经验 + 专注分钟 × 2。每一次认真生活，都会改变世界坐标。</p><div className="world-tabs"><button className="active">实时总榜</button><button>本周新星</button><button>专注榜</button></div></div><div className="ranking glass-card">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div></section>;
+  const continents = [
+    { id:"dawn", name:"曦华大陆", real:"亚洲", level:1, icon:"☼", style:"jade", title:"千城与古卷之地", story:"古老智慧与未来都市共存，完成学习、规划和长期成长任务。", quests:["知识古塔","习惯茶庭","千阶书院"], boss:"时间之龙", reward:"曦华罗盘" },
+    { id:"crown", name:"苍冠大陆", real:"欧洲", level:3, icon:"♜", style:"blue", title:"城堡与创造之地", story:"穿行艺术工坊与雾中古堡，挑战表达、创造和审美修行。", quests:["灵感画廊","工匠长街","诗人钟楼"], boss:"完美主义者", reward:"苍银羽笔" },
+    { id:"ember", name:"赤土大陆", real:"非洲", level:5, icon:"☀", style:"ember", title:"烈阳与生命之地", story:"辽阔草原回响着生命鼓点，锻炼健康、勇气与行动能力。", quests:["晨曦草原","勇气峡谷","生命绿洲"], boss:"倦怠巨兽", reward:"赤阳护符" },
+    { id:"storm", name:"风暴大陆", real:"北美洲", level:8, icon:"↯", style:"storm", title:"峡谷与革新之地", story:"从自由港驶向雷霆峡谷，完成事业、创新与突破类挑战。", quests:["创业者港","雷霆工坊","自由之路"], boss:"拖延风暴", reward:"先驱徽记" },
+    { id:"verdant", name:"森灵大陆", real:"南美洲", level:12, icon:"❧", style:"forest", title:"雨林与心灵之地", story:"在繁茂雨林中理解情绪、关系和内在成长的神秘连接。", quests:["回声雨林","关系藤桥","心流瀑布"], boss:"迷惘之影", reward:"森灵种子" },
+    { id:"coral", name:"珊海群岛", real:"大洋洲", level:16, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:["珊瑚学宫","月湾营地","群岛协作"], boss:"失衡海兽", reward:"潮汐贝冠" },
+    { id:"polar", name:"极星大陆", real:"南极洲", level:20, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:["寂静冰原","极光神殿","世界之心"], boss:"旧日的自己", reward:"极星之证" },
+  ];
+  const level = Math.max(1, Math.floor(data.user.xp / 100));
+  const unlocked = continents.filter(c => level >= c.level);
+  const [view, setView] = useState<"map"|"ranking">("map");
+  const [selectedId, setSelectedId] = useState(unlocked.at(-1)?.id ?? "dawn");
+  const selected = continents.find(c => c.id === selectedId) ?? continents[0];
+  const isUnlocked = level >= selected.level;
+  const next = continents.find(c => c.level > level);
+
+  return <section className="atlas-panel">
+    <div className="atlas-header">
+      <div><span className="chapter">星旅世界 · 七境地图</span><h2>向着尚未抵达的大陆</h2><p>现实七大洲化作不同文明与试炼。提升等级，逐步解锁世界边界。</p></div>
+      <div className="atlas-level"><span>旅行者等级</span><strong>Lv. {level}</strong><small>{next ? `下一大陆 Lv.${next.level} 解锁` : "七境全部开放"}</small></div>
+    </div>
+    <div className="atlas-tabs"><button className={view==="map"?"active":""} onClick={()=>setView("map")}>◎ 世界地图</button><button className={view==="ranking"?"active":""} onClick={()=>setView("ranking")}>♙ 小组排行</button></div>
+    {view === "map" ? <div className="atlas-content">
+      <div className="world-map glass-card">
+        <div className="map-grid-lines" /><div className="map-compass">✦<i>N</i></div>
+        <div className="ocean-name">THE STARCAMP WORLD · 星旅世界</div>
+        {continents.map((continent,index) => {
+          const open = level >= continent.level;
+          return <button key={continent.id} className={`continent continent-${continent.id} land-${continent.style} ${selectedId===continent.id?"selected":""} ${open?"unlocked":"locked"}`} onClick={()=>setSelectedId(continent.id)}>
+            <span className="land-shape"><i>{open ? continent.icon : "⌾"}</i></span>
+            <b>{continent.name}</b><small>{continent.real}原型 · Lv.{continent.level}</small>
+            {!open && <em>未解锁</em>}<u>{index+1}</u>
+          </button>;
+        })}
+        <div className="sea-route route-a" /><div className="sea-route route-b" /><div className="sea-route route-c" />
+      </div>
+      <aside className={`continent-detail detail-${selected.style} glass-card ${isUnlocked?"":"locked"}`}>
+        <div className="detail-banner"><span>{isUnlocked ? selected.icon : "⌾"}</span><div><small>{selected.real} · 世界第 {continents.findIndex(c=>c.id===selected.id)+1} 境</small><h3>{selected.name}</h3><p>{selected.title}</p></div></div>
+        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="explore-progress"><div><span>大陆探索度</span><b>{Math.min(92, 18 + (level-selected.level)*9)}%</b></div><i><em style={{width:`${Math.min(92,18+(level-selected.level)*9)}%`}} /></i></div><div className="region-list">{selected.quests.map((q,i)=><button key={q}><span>{i+1}</span><div><b>{q}</b><small>{i===0?"可探索":i===1?"完成前置区域后开放":"大陆深处"}</small></div><em>→</em></button>)}</div><div className="continent-boss"><span>♢</span><div><small>大陆终局试炼</small><b>{selected.boss}</b></div><em>限定奖励 · {selected.reward}</em></div><button className="enter-continent">进入 {selected.name}</button></> : <div className="locked-detail"><span>⌾</span><h4>大陆边界尚未显现</h4><p>旅行者达到 <b>Lv.{selected.level}</b> 后解锁。还需获得 {(selected.level*100-data.user.xp).toLocaleString()} 点冒险阅历。</p><div><i style={{width:`${Math.min(100,data.user.xp/(selected.level*100)*100)}%`}} /></div></div>}
+        <div className="world-milestone"><span>{unlocked.length}/7</span><p>已发现大陆<br/><small>继续完成任务以拓展世界地图</small></p></div>
+      </aside>
+    </div> : <div className="ranking glass-card atlas-ranking">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div>}
+  </section>;
 }
