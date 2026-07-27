@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Quest = { id: number; title: string; detail: string; reward: number; type: string; done: number };
+type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
 type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[] };
 type RankTeam = { id: number; name: string; code: string; members: number; strength: number; focus_minutes: number };
@@ -52,9 +52,13 @@ export default function GameClient({ identity }: { identity: { email: string; na
   async function act(payload: Record<string, unknown>, success: string) {
     const res = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const json = await res.json();
-    if (!res.ok) return notify(json.error ?? "操作失败");
+    if (!res.ok) {
+      notify(json.error ?? "操作失败");
+      return false;
+    }
     setData(json);
     notify(success);
+    return true;
   }
 
   function notify(message: string) {
@@ -113,7 +117,18 @@ export default function GameClient({ identity }: { identity: { email: string; na
   );
 }
 
-function Camp({ data, done, setTab, act }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Camp({ data, done, setTab, act }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+  const calendarAgenda = data.quests.filter((quest) => quest.dueAt && !quest.done).slice(0, 3);
+  const agenda = calendarAgenda.length ? calendarAgenda.map((quest) => ({
+    time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    title: quest.title,
+    detail: quest.detail,
+    state: quest.source === "google" ? "Google" : quest.source === "outlook" ? "Outlook" : quest.source === "icloud" ? "iCloud" : "日历",
+  })) : [
+    { time: "08:30", title: "晨间仪式", detail: "补充能量，确定今日航向", state: "已完成" },
+    { time: "14:00", title: "知识秘境", detail: "30 分钟无干扰阅读", state: "待出发" },
+    { time: "20:30", title: "篝火复盘", detail: "记录今天的三个闪光点", state: "未开始" },
+  ];
   return <><div className="page-grid">
     <section className="hero-card">
       <div className="hero-copy"><span className="chapter">第三章 · 与同伴共赴群星</span><h2>一个人的愿望<br />汇成世界的光</h2><p>你的每一次行动，都在为小组积累实力，也让世界版图更加明亮。</p><button className="gold-button" onClick={() => setTab("世界")}>进入星旅世界 <span>→</span></button></div>
@@ -124,27 +139,57 @@ function Camp({ data, done, setTab, act }: { data: GameData; done: number; setTa
     <QuestBoard data={data} done={done} act={act} compact />
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
   </div><div className="camp-bottom-grid">
-    <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div><div className="agenda-line"><i /><span>08:30</span><div><b>晨间仪式</b><small>补充能量，确定今日航向</small></div><em>已完成</em></div><div className="agenda-line"><i /><span>14:00</span><div><b>知识秘境</b><small>30 分钟无干扰阅读</small></div><em>待出发</em></div><div className="agenda-line"><i /><span>20:30</span><div><b>篝火复盘</b><small>记录今天的三个闪光点</small></div><em>未开始</em></div></section>
+    <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
     <section className="glass-card camp-weather"><div className="card-heading"><div><small>营地天气</small><h3>今日能量</h3></div><span>☀</span></div><div className="energy-ring"><strong>{Math.min(100, 58 + done * 9)}%</strong><small>状态晴朗</small></div><p>今日已经获得 <b>{data.quests.filter(q => q.done).reduce((n,q) => n + q.reward, 0)}</b> 点历练。完成下一项委托，可点亮连续行动星。</p></section>
     <section className="glass-card camp-achievement"><div className="card-heading"><div><small>最近获得</small><h3>冒险回响</h3></div><button className="text-button" onClick={() => setTab("行囊")}>打开行囊 →</button></div><div className="mini-badges"><div><span>✦</span><b>初心者</b><small>完成首个任务</small></div><div><span>◷</span><b>静心者</b><small>累计专注 60 分钟</small></div><div className={data.user.referralCount ? "" : "locked"}><span>♙</span><b>引路人</b><small>邀请一位好友</small></div></div></section>
   </div></>;
 }
 
-function QuestBoard({ data, done, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<void>; compact?: boolean }) {
+function QuestBoard({ data, done, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; compact?: boolean }) {
   const [filter, setFilter] = useState("全部");
   const [creating, setCreating] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarUrl, setCalendarUrl] = useState("");
+  const [calendarText, setCalendarText] = useState("");
+  const [calendarFile, setCalendarFile] = useState("");
+  const [provider, setProvider] = useState("google");
+  const [rangeDays, setRangeDays] = useState(7);
+  const [importing, setImporting] = useState(false);
   const [title, setTitle] = useState("");
   const [detail, setDetail] = useState("");
   const [type, setType] = useState("日常");
-  const visible = data.quests.filter(q => filter === "全部" || q.type === filter);
+  const visible = data.quests.filter(q => filter === "全部" || (filter === "日历" ? q.source !== "manual" : q.type === filter));
   async function create() {
     await act({ action: "createQuest", title, detail, type }, "新委托已加入任务卷轴");
     setTitle(""); setDetail(""); setCreating(false);
   }
-  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => setFilter(v)}>{v}</button>)}</div><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div>{creating && <div className="quest-composer"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务名称，例如：完成作品集第二页" /><input value={detail} onChange={e => setDetail(e.target.value)} placeholder="写下清晰的完成标准" /><select value={type} onChange={e => setType(e.target.value)}><option>日常</option><option>支线</option><option>主线</option></select><button onClick={() => void create()}>加入卷轴</button></div>}<div className="quest-summary-row"><div><span>✦</span><b>{data.quests.reduce((n,q) => n + (q.done ? q.reward : 0),0)}</b><small>今日已获经验</small></div><div><span>◇</span><b>{data.quests.filter(q => !q.done).length}</b><small>待完成委托</small></div><div><span>☼</span><b>{done >= 3 ? "连续" : `${3-done} 项`}</b><small>距离今日宝箱</small></div></div></>}<div className="quest-list">{visible.map((q) => <article key={q.id} className={q.done ? "quest done" : "quest"}><button className="quest-check" disabled={Boolean(q.done)} onClick={() => void act({ action: "completeQuest", questId: q.id }, `任务完成：经验 +${q.reward}`)}>{q.done ? "✓" : ""}</button><div className="quest-text"><span className={`quest-type type-${q.type}`}>{q.type}</span><h4>{q.title}</h4><p>{q.detail}</p></div><div className="reward"><span>✦</span><b>+{q.reward}</b></div></article>)}</div></section>;
+  async function importCalendar() {
+    if (!calendarUrl.trim() && !calendarText) return;
+    setImporting(true);
+    const imported = await act({ action: "importCalendar", calendarUrl: calendarUrl.trim(), calendarText, provider: calendarText ? "ics" : provider, rangeDays }, "日历日程已转换为云端任务");
+    setImporting(false);
+    if (!imported) return;
+    setCalendarUrl("");
+    setCalendarText("");
+    setCalendarFile("");
+    setFilter("日历");
+  }
+  async function chooseCalendarFile(file?: File) {
+    if (!file) return;
+    setCalendarFile(file.name);
+    setCalendarText(await file.text());
+    setProvider("ics");
+  }
+  const sourceLabel = (source: string) => source === "google" ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
+  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => setFilter(v)}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门</small><h3>从常用日历导入每日任务</h3><p>选择未来范围，日程会自动去重并保存到你的云端任务。订阅链接不会被保存。</p></div><span>◫</span></div><div className="provider-grid">{[
+    ["google","G","Google Calendar","使用“日历设置 → 集成日历 → iCal 格式的私密网址”"],
+    ["outlook","O","Outlook / Microsoft 365","使用“设置 → 共享日历 → 发布日历 → ICS”"],
+    ["icloud","◆","Apple iCloud","将日历设为公开并复制 webcal 订阅链接"],
+    ["ics","↓","通用 ICS 文件","适用于飞书、钉钉、Notion Calendar 等导出的 .ics 文件"],
+  ].map(([key,icon,name,note]) => <button key={key} className={provider === key ? `provider-card ${key} active` : `provider-card ${key}`} onClick={() => setProvider(key)}><span>{icon}</span><div><b>{name}</b><small>{note}</small></div><em>{provider === key ? "已选择" : "选择"}</em></button>)}</div><div className="calendar-import-row"><label className="calendar-link-field"><span>订阅链接</span><input value={calendarUrl} disabled={provider === "ics" && Boolean(calendarText)} onChange={(event) => setCalendarUrl(event.target.value)} placeholder="粘贴 https:// 或 webcal:// 开头的 ICS 链接" /></label><label className="calendar-range"><span>导入范围</span><select value={rangeDays} onChange={(event) => setRangeDays(Number(event.target.value))}><option value={1}>今天</option><option value={7}>未来 7 天</option><option value={14}>未来 14 天</option><option value={30}>未来 30 天</option></select></label><label className="ics-upload"><input type="file" accept=".ics,text/calendar" onChange={(event) => void chooseCalendarFile(event.target.files?.[0])} /><span>{calendarFile ? `✓ ${calendarFile}` : "上传 .ics 文件"}</span></label><button className="calendar-import-button" disabled={importing || (!calendarUrl.trim() && !calendarText)} onClick={() => void importCalendar()}>{importing ? "正在穿越星门…" : "导入任务"}</button></div><p className="calendar-privacy">安全提示：请勿分享日历订阅链接；系统只读取日程并保存任务，不保存链接或邮箱密码。</p></section>}{creating && <div className="quest-composer"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务名称，例如：完成作品集第二页" /><input value={detail} onChange={e => setDetail(e.target.value)} placeholder="写下清晰的完成标准" /><select value={type} onChange={e => setType(e.target.value)}><option>日常</option><option>支线</option><option>主线</option></select><button onClick={() => void create()}>加入卷轴</button></div>}<div className="quest-summary-row"><div><span>✦</span><b>{data.quests.reduce((n,q) => n + (q.done ? q.reward : 0),0)}</b><small>今日已获经验</small></div><div><span>◇</span><b>{data.quests.filter(q => !q.done).length}</b><small>待完成委托</small></div><div><span>▦</span><b>{data.quests.filter(q => q.source !== "manual").length}</b><small>日历导入任务</small></div></div></>}<div className="quest-list">{visible.map((q) => <article key={q.id} className={q.done ? "quest done" : "quest"}><button className="quest-check" disabled={Boolean(q.done)} onClick={() => void act({ action: "completeQuest", questId: q.id }, `任务完成：经验 +${q.reward}`)}>{q.done ? "✓" : ""}</button><div className="quest-text"><div className="quest-badges"><span className={`quest-type type-${q.type}`}>{q.type}</span>{q.source !== "manual" && <span className={`calendar-source source-${q.source}`}>▦ {sourceLabel(q.source)}</span>}{q.dueAt && <time>{q.dueAt.length === 10 ? new Date(`${q.dueAt}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : new Date(q.dueAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</time>}</div><h4>{q.title}</h4><p>{q.detail}</p></div><div className="reward"><span>✦</span><b>+{q.reward}</b></div></article>)}</div></section>;
 }
 
-function Focus({ data, timer, running, setRunning, setTimer, focusMinutes, setFocusMinutes, act }: { data: GameData; timer: string; running: boolean; setRunning: (v: boolean) => void; setTimer: React.Dispatch<React.SetStateAction<number>>; focusMinutes: number; setFocusMinutes: (v: number) => void; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Focus({ data, timer, running, setRunning, setTimer, focusMinutes, setFocusMinutes, act }: { data: GameData; timer: string; running: boolean; setRunning: (v: boolean) => void; setTimer: React.Dispatch<React.SetStateAction<number>>; focusMinutes: number; setFocusMinutes: (v: number) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
   function choose(minutes: number) { if (running) return; setFocusMinutes(minutes); setTimer(minutes * 60); }
   return <section className="focus-layout"><div className="focus-stage glass-card"><div className="section-intro"><small>静谧秘境</small><h2>专注沙漏</h2><p>隔绝干扰、积累阅历，完成后自动同步到小组实力。</p></div><div className="focus-modes">{[["轻旅",15],["标准",25],["深潜",45],["长征",60]].map(([name,minutes]) => <button key={name} className={focusMinutes === minutes ? "active" : ""} onClick={() => choose(Number(minutes))}><b>{minutes}</b><span>{name}</span></button>)}</div><div className={running ? "timer-orbit giant running" : "timer-orbit giant"}><div className="orbit-dot" /><div className="timer-face"><small>{running ? "正在专注" : "准备启程"}</small><strong>{timer}</strong><span>{focusMinutes >= 45 ? "深度工作" : "专注修行"} · 云端计时</span></div></div><div className="timer-actions"><button className="secondary-button" onClick={() => { setRunning(false); setTimer(focusMinutes * 60); }}>重置</button><button className="primary-round" onClick={() => setRunning(!running)}>{running ? "Ⅱ" : "▶"}</button><button className="secondary-button" onClick={() => setTimer((v) => v + 5 * 60)}>+5 分钟</button></div></div><aside className="focus-insights"><div className="glass-card focus-stat"><small>专注总览</small><h3>{data.user.focusMinutes}<em> 分钟</em></h3><div className="focus-bars">{[35,62,45,80,55,72,40].map((v,i)=><i key={i} style={{height:`${v}%`}} />)}</div><p>坚持完成一次专注秘境，小组实力将增加 <b>{focusMinutes * 2}</b>。</p></div><div className="glass-card focus-history"><div className="card-heading"><div><small>历练手记</small><h3>最近专注</h3></div><span>◷</span></div>{data.focusHistory.length ? data.focusHistory.map(r => <article key={r.id}><span>静谧秘境</span><b>{r.minutes} 分钟</b><small>{new Date(r.created_at).toLocaleDateString("zh-CN")}</small></article>) : <div className="no-history">完成第一次专注后，记录会出现在这里。</div>}</div><button className="quick-finish" onClick={() => void act({action:"focus",minutes:focusMinutes},`已记录 ${focusMinutes} 分钟专注`)}>直接记录已完成专注</button></aside></section>;
 }
@@ -156,7 +201,7 @@ const catalog = [
   { key:"adventure-day", icon:"⌁", name:"远方冒险日", note:"安排一场城市探索或近郊旅行", price:260, tone:"violet" },
 ];
 
-function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<void> }) {
+function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
   const owned = new Map(data.inventory.map(i => [i.item_key, i.quantity]));
   const achievements = [
     { icon:"✦", name:"初见之章", note:"完成第一个任务", unlocked:data.quests.some(q=>q.done) },
@@ -167,7 +212,7 @@ function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, 
   return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就</small><h3>冒险徽章</h3></div><b>{achievements.filter(a=>a.unlocked).length}/{achievements.length} 已解锁</b></div><div className="achievement-grid">{achievements.map(a=><article key={a.name} className={a.unlocked ? "" : "locked"}><span>{a.icon}</span><b>{a.name}</b><small>{a.note}</small><em>{a.unlocked ? "已获得" : "未解锁"}</em></article>)}</div></section></div></section>;
 }
 
-function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<void>; copy: (v: string, s: string) => Promise<void> }) {
+function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
   return <section className="social-panel">
     <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div><div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制</button></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
     <div className="team-card glass-card">{data.team ? <><div className="team-head"><div className="team-crest">♙</div><div><small>我的五人小组</small><h2>{data.team.name}</h2><p>{data.team.member_count}/5 位成员 · 小组口令 {data.team.code}</p></div><button onClick={() => void copy(data.team!.code, "小组口令已复制")}>复制口令</button></div><div className="member-list">{data.team.members.map((m, i) => <article key={m.email}><span className="member-rank">{i + 1}</span><div className="member-avatar">{m.display_name.slice(0, 1)}</div><div><b>{m.display_name}</b><small>{m.focus_minutes} 分钟专注</small></div><strong>{m.strength.toLocaleString()} <small>实力</small></strong></article>)}{Array.from({ length: 5 - data.team.member_count }).map((_, i) => <article className="empty-member" key={i}><span>＋</span><p>等待新的同行者</p></article>)}</div></> : <><div className="section-intro"><small>同行者大厅</small><h2>创建或加入小组</h2><p>每位旅行者只能加入一个小组，每组最多 5 人。</p></div><div className="team-choices"><div><h3>建立新的营地</h3><input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="输入小组名称" maxLength={16}/><button onClick={() => void act({ action: "createTeam", name: teamName }, "小组创建成功")}>创建小组</button></div><div><h3>加入好友的小组</h3><input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="输入小组口令"/><button onClick={() => void act({ action: "joinTeam", code: teamInput }, "已加入小组")}>加入小组</button></div></div></>}</div>

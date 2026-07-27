@@ -11,12 +11,154 @@ type UserRow = {
   focus_minutes: number;
 };
 
+type CalendarEvent = {
+  uid: string;
+  title: string;
+  description: string;
+  location: string;
+  dueAt: string;
+};
+
 const starterQuests = [
   ["完成晨间仪式", "喝水 · 拉伸 · 写下今日目标", "日常", 30],
   ["推进「理想工作」主线", "完成作品集首页的内容整理", "主线", 80],
   ["知识秘境：深度阅读", "专注阅读 30 分钟并记录三点收获", "支线", 45],
   ["风之小径", "户外散步 20 分钟", "日常", 25],
 ] as const;
+
+const calendarHosts = [
+  "calendar.google.com",
+  "outlook.live.com",
+  "outlook.office365.com",
+  "outlook.office.com",
+  "icloud.com",
+];
+
+function unescapeIcs(value = "") {
+  return value
+    .replace(/\\n/gi, " ")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function parseIcsDate(value = "") {
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
+  if (!match) return null;
+  const [, year, month, day, hour, minute, second, utc] = match;
+  const allDay = !hour;
+  const date = utc
+    ? new Date(Date.UTC(+year, +month - 1, +day, +(hour || 0), +(minute || 0), +(second || 0)))
+    : new Date(+year, +month - 1, +day, +(hour || 0), +(minute || 0), +(second || 0));
+  const dueAt = allDay
+    ? `${year}-${month}-${day}`
+    : utc
+      ? date.toISOString()
+      : `${year}-${month}-${day}T${hour}:${minute}:${second || "00"}`;
+  return { date, dueAt, allDay };
+}
+
+function occurrenceDueAt(date: Date, allDay: boolean, utc: boolean) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  if (allDay) return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  if (utc) return date.toISOString();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function parseCalendar(ics: string, rangeDays: number) {
+  const unfolded = ics.replace(/\r?\n[ \t]/g, "");
+  const blocks = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) ?? [];
+  const now = new Date();
+  const startWindow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endWindow = new Date(startWindow);
+  endWindow.setDate(endWindow.getDate() + rangeDays);
+  const output: CalendarEvent[] = [];
+  const weekday: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+
+  for (const block of blocks) {
+    const properties = new Map<string, string[]>();
+    for (const line of block.split(/\r?\n/)) {
+      const split = line.indexOf(":");
+      if (split < 0) continue;
+      const key = line.slice(0, split).split(";")[0].toUpperCase();
+      const values = properties.get(key) ?? [];
+      values.push(line.slice(split + 1));
+      properties.set(key, values);
+    }
+    if (properties.get("STATUS")?.[0] === "CANCELLED") continue;
+    const parsedStart = parseIcsDate(properties.get("DTSTART")?.[0]);
+    if (!parsedStart) continue;
+    const title = unescapeIcs(properties.get("SUMMARY")?.[0]) || "未命名日程";
+    const description = unescapeIcs(properties.get("DESCRIPTION")?.[0]).slice(0, 120);
+    const location = unescapeIcs(properties.get("LOCATION")?.[0]).slice(0, 60);
+    const uid = unescapeIcs(properties.get("UID")?.[0]) || `${title}-${parsedStart.dueAt}`;
+    const recurrence = Object.fromEntries(
+      (properties.get("RRULE")?.[0] ?? "")
+        .split(";")
+        .map((part) => part.split("="))
+        .filter((part) => part.length === 2),
+    );
+    const exclusions = new Set(
+      (properties.get("EXDATE") ?? [])
+        .flatMap((value) => value.split(","))
+        .map((value) => parseIcsDate(value)?.dueAt.slice(0, 10))
+        .filter(Boolean),
+    );
+    const until = parseIcsDate(recurrence.UNTIL)?.date;
+    const interval = Math.max(1, Number(recurrence.INTERVAL) || 1);
+    const utc = /Z$/.test(properties.get("DTSTART")?.[0] ?? "");
+
+    const addOccurrence = (date: Date) => {
+      if (date < startWindow || date >= endWindow || (until && date > until)) return;
+      const dueAt = occurrenceDueAt(date, parsedStart.allDay, utc);
+      if (exclusions.has(dueAt.slice(0, 10))) return;
+      output.push({ uid: `${uid}:${dueAt}`, title, description, location, dueAt });
+    };
+
+    if (!recurrence.FREQ) {
+      addOccurrence(parsedStart.date);
+    } else {
+      for (let cursor = new Date(startWindow); cursor < endWindow; cursor.setDate(cursor.getDate() + 1)) {
+        const candidate = new Date(
+          cursor.getFullYear(),
+          cursor.getMonth(),
+          cursor.getDate(),
+          parsedStart.date.getHours(),
+          parsedStart.date.getMinutes(),
+          parsedStart.date.getSeconds(),
+        );
+        if (candidate < parsedStart.date) continue;
+        const days = Math.floor((candidate.getTime() - new Date(parsedStart.date.getFullYear(), parsedStart.date.getMonth(), parsedStart.date.getDate()).getTime()) / 86400000);
+        const months = (candidate.getFullYear() - parsedStart.date.getFullYear()) * 12 + candidate.getMonth() - parsedStart.date.getMonth();
+        const years = candidate.getFullYear() - parsedStart.date.getFullYear();
+        const byDays = (recurrence.BYDAY || "").split(",").map((day) => weekday[day.slice(-2)]).filter((day) => day !== undefined);
+        const byMonthDays = (recurrence.BYMONTHDAY || "").split(",").map(Number).filter(Boolean);
+        const matches =
+          recurrence.FREQ === "DAILY" ? days % interval === 0 :
+          recurrence.FREQ === "WEEKLY" ? Math.floor(days / 7) % interval === 0 && (byDays.length ? byDays.includes(candidate.getDay()) : candidate.getDay() === parsedStart.date.getDay()) :
+          recurrence.FREQ === "MONTHLY" ? months % interval === 0 && (byMonthDays.length ? byMonthDays.includes(candidate.getDate()) : candidate.getDate() === parsedStart.date.getDate()) :
+          recurrence.FREQ === "YEARLY" ? years % interval === 0 && candidate.getMonth() === parsedStart.date.getMonth() && candidate.getDate() === parsedStart.date.getDate() :
+          false;
+        if (matches) addOccurrence(candidate);
+      }
+    }
+    if (output.length >= 40) break;
+  }
+  return output.sort((a, b) => a.dueAt.localeCompare(b.dueAt)).slice(0, 40);
+}
+
+function calendarUrl(input: string) {
+  const normalized = input.trim().replace(/^webcal:\/\//i, "https://");
+  const url = new URL(normalized);
+  if (url.protocol !== "https:") throw new Error("日历链接必须使用 HTTPS 或 webcal");
+  const host = url.hostname.toLowerCase();
+  if (!calendarHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+    throw new Error("此链接暂不支持，请下载 .ics 文件后导入");
+  }
+  return url;
+}
 
 function makeCode(prefix: string, value: string) {
   let hash = 2166136261;
@@ -50,8 +192,9 @@ async function dashboard(email: string) {
   const db = env.DB;
   const user = await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<UserRow>();
   const quests = await db.prepare(`
-    SELECT id, title, detail, type, reward, completed AS done
-    FROM quests WHERE user_email = ? ORDER BY id
+    SELECT id, title, detail, type, reward, source, due_at AS dueAt, completed AS done
+    FROM quests WHERE user_email = ?
+    ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, id
   `).bind(email).all();
   const team = await db.prepare(`
     SELECT t.id, t.name, t.code, t.owner_email,
@@ -118,7 +261,22 @@ export async function POST(request: Request) {
   try {
     const identity = await currentUser();
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
-    const body = await request.json() as { action?: string; questId?: number; minutes?: number; code?: string; name?: string; title?: string; detail?: string; type?: string; itemKey?: string; price?: number };
+    const body = await request.json() as {
+      action?: string;
+      questId?: number;
+      minutes?: number;
+      code?: string;
+      name?: string;
+      title?: string;
+      detail?: string;
+      type?: string;
+      itemKey?: string;
+      price?: number;
+      calendarUrl?: string;
+      calendarText?: string;
+      provider?: string;
+      rangeDays?: number;
+    };
     const db = env.DB;
 
     if (body.action === "completeQuest") {
@@ -141,6 +299,44 @@ export async function POST(request: Request) {
       const reward = type === "主线" ? 80 : type === "日常" ? 30 : 45;
       await db.prepare("INSERT INTO quests (user_email, title, detail, type, reward) VALUES (?, ?, ?, ?, ?)")
         .bind(identity.email, title, detail || "由旅行者亲自制定的冒险委托", type, reward).run();
+    } else if (body.action === "importCalendar") {
+      const provider = ["google", "outlook", "icloud", "ics"].includes(body.provider ?? "") ? body.provider! : "ics";
+      const rangeDays = Math.max(1, Math.min(30, Number(body.rangeDays) || 7));
+      let calendarText = (body.calendarText ?? "").trim();
+      if (!calendarText && body.calendarUrl) {
+        const source = calendarUrl(body.calendarUrl);
+        const response = await fetch(source, {
+          redirect: "follow",
+          headers: { Accept: "text/calendar,text/plain;q=0.9,*/*;q=0.1" },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok) throw new Error("无法读取日历链接，请确认已经开启公开/私密订阅");
+        const declaredSize = Number(response.headers.get("content-length") || 0);
+        if (declaredSize > 1_500_000) throw new Error("日历文件过大，请缩短导出范围后重试");
+        calendarText = await response.text();
+      }
+      if (calendarText.length > 1_500_000) throw new Error("日历文件过大，请缩短导出范围后重试");
+      if (!calendarText.includes("BEGIN:VCALENDAR")) {
+        return Response.json({ error: "没有识别到有效的 .ics 日历内容" }, { status: 400 });
+      }
+      const events = parseCalendar(calendarText, rangeDays);
+      if (!events.length) {
+        return Response.json({ error: `未来 ${rangeDays} 天没有可导入的日程` }, { status: 400 });
+      }
+      const results = await db.batch(events.map((event) => {
+        const moment = new Date(event.dueAt);
+        const time = event.dueAt.length === 10
+          ? "全天"
+          : moment.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+        const detail = [time, event.location, event.description].filter(Boolean).join(" · ").slice(0, 180);
+        return db.prepare(`
+          INSERT OR IGNORE INTO quests
+            (user_email, title, detail, type, reward, source, due_at, external_id)
+          VALUES (?, ?, ?, '日常', 30, ?, ?, ?)
+        `).bind(identity.email, event.title.slice(0, 80), detail || "来自日历的云端日程", provider, event.dueAt, event.uid);
+      }));
+      const imported = results.reduce((total, result) => total + Number(result.meta.changes || 0), 0);
+      return Response.json({ ...(await dashboard(identity.email)), lastImportCount: imported });
     } else if (body.action === "focus") {
       const minutes = Math.max(1, Math.min(180, Number(body.minutes) || 25));
       await db.batch([

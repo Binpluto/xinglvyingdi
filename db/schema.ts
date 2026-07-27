@@ -19,9 +19,14 @@ export const quests = sqliteTable("quests", {
   detail: text("detail").notNull(),
   type: text("type").notNull(),
   reward: integer("reward").notNull(),
+  source: text("source").notNull().default("manual"),
+  dueAt: text("due_at"),
+  externalId: text("external_id"),
   completed: integer("completed", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [
+  uniqueIndex("quests_calendar_event_idx").on(table.userEmail, table.source, table.externalId),
+]);
 
 export const focusSessions = sqliteTable("focus_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
