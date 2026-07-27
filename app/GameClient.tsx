@@ -351,8 +351,8 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
           const open = Boolean(realmProgress?.unlocked);
           const aiming = Boolean(realmProgress?.target);
           return <button key={continent.id} className={`continent continent-${continent.id} land-${continent.style} ${selectedId===continent.id?"selected":""} ${open?"unlocked":"locked"} ${aiming?"targeted":""}`} onClick={()=>setSelectedId(continent.id)}>
-            <span className="land-shape"><i>{open ? continent.icon : "⌾"}</i></span>
-            <b>{continent.name}</b><small>{continent.id === "dawn" ? "初始大陆 · 默认解锁" : `${continent.xpRequired.toLocaleString()} EXP · ${continent.difficulty}`}</small>
+            <span className="land-shape" aria-hidden="true"><span className="terrain terrain-one" /><span className="terrain terrain-two" /><span className="terrain terrain-three" /><i>{open ? continent.icon : "⌾"}</i></span>
+            <b>{continent.name}</b><span className="land-identity">{continent.real} · {continent.trait}</span><small>{continent.id === "dawn" ? "初始大陆 · 默认解锁" : `${continent.xpRequired.toLocaleString()} EXP · ${continent.difficulty}`}</small>
             {aiming ? <em>当前目标</em> : !open && <em>未解锁</em>}<u>{index+1}</u>
           </button>;
         })}

@@ -73,6 +73,23 @@ test("applies a distinct full-site theme for every continent", async () => {
   assert.match(css, /\.realm-status/);
 });
 
+test("renders every continent with a unique silhouette, scale and terrain identity", async () => {
+  const [client, css] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /terrain terrain-one/);
+  assert.match(client, /land-identity/);
+  for (const realm of ["dawn", "crown", "ember", "storm", "verdant", "coral", "polar"]) {
+    assert.match(css, new RegExp(`\\.continent-${realm}\\{--land-width:`));
+    assert.match(css, new RegExp(`\\.continent-${realm} \\.land-shape\\{[^}]*clip-path:`));
+  }
+  assert.match(css, /\.continent-coral \.land-shape::before/);
+  assert.match(css, /\.continent-storm \.terrain-two/);
+  assert.match(css, /\.continent-polar \.terrain-three/);
+});
+
 test("persists branching continent progression", async () => {
   const [client, route, schema, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
