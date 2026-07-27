@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { assertSameOrigin, getAppUser } from "../../app-auth";
 
 type UserRow = {
   email: string;
@@ -166,8 +166,8 @@ function makeCode(prefix: string, value: string) {
   return `${prefix}${(hash >>> 0).toString(36).toUpperCase().slice(0, 7)}`;
 }
 
-async function currentUser() {
-  const identity = await getChatGPTUser();
+async function currentUser(request: Request) {
+  const identity = await getAppUser(request);
   if (!identity) return null;
   const db = env.DB;
   const inviteCode = makeCode("STAR", identity.email.toLowerCase());
@@ -247,9 +247,9 @@ async function dashboard(email: string) {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const identity = await currentUser();
+    const identity = await currentUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
     return Response.json(await dashboard(identity.email));
   } catch (error) {
@@ -259,7 +259,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const identity = await currentUser();
+    assertSameOrigin(request);
+    const identity = await currentUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
     const body = await request.json() as {
       action?: string;

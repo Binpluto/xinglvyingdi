@@ -19,7 +19,7 @@ type GameData = {
 
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 
-export default function GameClient({ identity }: { identity: { email: string; name: string } }) {
+export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState("营地");
   const [timer, setTimer] = useState(25 * 60);
@@ -46,12 +46,20 @@ export default function GameClient({ identity }: { identity: { email: string; na
   async function load() {
     const res = await fetch("/api/game");
     const json = await res.json();
+    if (res.status === 401) {
+      await onLogout();
+      return;
+    }
     if (res.ok) setData(json); else notify(json.error ?? "云端同步失败");
   }
 
   async function act(payload: Record<string, unknown>, success: string) {
     const res = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const json = await res.json();
+    if (res.status === 401) {
+      await onLogout();
+      return false;
+    }
     if (!res.ok) {
       notify(json.error ?? "操作失败");
       return false;
@@ -89,7 +97,7 @@ export default function GameClient({ identity }: { identity: { email: string; na
         <div className="nav-stack">
           {nav.map(([label, icon]) => <button key={label} className={tab === label ? "nav-item active" : "nav-item"} onClick={() => setTab(label)}><span>{icon}</span><small>{label}</small></button>)}
         </div>
-        <a className="nav-item signout-link" href="/signout-with-chatgpt?return_to=%2F"><span>↪</span><small>退出</small></a>
+        <button className="nav-item signout-link" onClick={() => void onLogout()}><span>↪</span><small>退出</small></button>
       </aside>
 
       <section className="main-content">

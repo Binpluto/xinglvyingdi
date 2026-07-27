@@ -4,16 +4,24 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("builds the Starcamp authenticated application", async () => {
-  const [page, layout, client] = await Promise.all([
+test("builds the Starcamp email-authenticated application", async () => {
+  const [page, layout, client, authClient, authRoute, authServer] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/layout.tsx", root), "utf8"),
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/AuthClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/auth/route.ts", root), "utf8"),
+    readFile(new URL("app/app-auth.ts", root), "utf8"),
   ]);
 
   assert.match(layout, /星旅营地｜游戏化人生管理/);
-  assert.match(page, /使用邮箱登录 \/ 注册/);
-  assert.match(page, /<GameClient/);
+  assert.match(page, /<AuthClient/);
+  assert.doesNotMatch(page + client + authClient, /signin-with-chatgpt|signout-with-chatgpt/);
+  assert.match(authClient, /邮箱登录/);
+  assert.match(authClient, /注册账号/);
+  assert.match(authRoute, /registerAccount/);
+  assert.match(authServer, /PBKDF2/);
+  assert.match(authServer, /HttpOnly; SameSite=Lax/);
   assert.match(client, /云端已同步/);
   assert.match(client, /五人小组/);
   assert.match(client, /世界地图/);

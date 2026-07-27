@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   email: text("email").primaryKey(),
@@ -11,6 +11,25 @@ export const users = sqliteTable("users", {
   focusMinutes: integer("focus_minutes").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [uniqueIndex("users_invite_code_idx").on(table.inviteCode)]);
+
+export const authAccounts = sqliteTable("auth_accounts", {
+  email: text("email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  passwordSalt: text("password_salt").notNull(),
+  failedAttempts: integer("failed_attempts").notNull().default(0),
+  lockedUntil: text("locked_until"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const authSessions = sqliteTable("auth_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("auth_sessions_user_idx").on(table.userEmail),
+  index("auth_sessions_expiry_idx").on(table.expiresAt),
+]);
 
 export const quests = sqliteTable("quests", {
   id: integer("id").primaryKey({ autoIncrement: true }),
