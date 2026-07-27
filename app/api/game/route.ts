@@ -176,6 +176,13 @@ async function currentUser(request: Request) {
     VALUES (?, ?, ?, 0)
     ON CONFLICT(email) DO UPDATE SET display_name = excluded.display_name
   `).bind(identity.email, identity.displayName, inviteCode).run();
+  await db.prepare(`
+    UPDATE users SET xp = 0
+    WHERE email = ? AND xp = 680 AND focus_minutes = 0
+      AND NOT EXISTS (SELECT 1 FROM quests q WHERE q.user_email = users.email AND q.completed = 1)
+      AND NOT EXISTS (SELECT 1 FROM referrals r WHERE r.referrer_email = users.email OR r.invitee_email = users.email)
+      AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.user_email = users.email)
+  `).bind(identity.email).run();
 
   const count = await db.prepare("SELECT COUNT(*) AS count FROM quests WHERE user_email = ?")
     .bind(identity.email).first<{ count: number }>();
