@@ -72,3 +72,22 @@ test("applies a distinct full-site theme for every continent", async () => {
   assert.match(client, /当前驻扎/);
   assert.match(css, /\.realm-status/);
 });
+
+test("persists branching continent progression", async () => {
+  const [client, route, schema, migration] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0004_misty_mystique.sql", root), "utf8"),
+  ]);
+
+  assert.match(client, /初始大陆 · 默认解锁/);
+  assert.match(client, /选择为下一大陆/);
+  assert.match(client, /xpRequired:3300/);
+  assert.match(client, /完成当前大陆的 3 项任务后/);
+  assert.match(route, /completeRealmTask/);
+  assert.match(route, /chooseRealmTarget/);
+  assert.match(route, /INSERT OR IGNORE INTO realm_progress/);
+  assert.match(schema, /realmProgress/);
+  assert.match(migration, /CREATE TABLE `realm_progress`/);
+});

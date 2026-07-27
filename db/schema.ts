@@ -84,3 +84,16 @@ export const inventory = sqliteTable("inventory", {
   quantity: integer("quantity").notNull().default(1),
   acquiredAt: text("acquired_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [primaryKey({ columns: [table.userEmail, table.itemKey] })]);
+
+export const realmProgress = sqliteTable("realm_progress", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  realmId: text("realm_id").notNull(),
+  completedRegions: integer("completed_regions").notNull().default(0),
+  unlocked: integer("unlocked", { mode: "boolean" }).notNull().default(false),
+  target: integer("target", { mode: "boolean" }).notNull().default(false),
+  unlockedAt: text("unlocked_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userEmail, table.realmId] }),
+  index("realm_progress_user_idx").on(table.userEmail),
+]);
