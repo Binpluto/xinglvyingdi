@@ -172,8 +172,8 @@ async function currentUser(request: Request) {
   const db = env.DB;
   const inviteCode = makeCode("STAR", identity.email.toLowerCase());
   await db.prepare(`
-    INSERT INTO users (email, display_name, invite_code)
-    VALUES (?, ?, ?)
+    INSERT INTO users (email, display_name, invite_code, xp)
+    VALUES (?, ?, ?, 0)
     ON CONFLICT(email) DO UPDATE SET display_name = excluded.display_name
   `).bind(identity.email, identity.displayName, inviteCode).run();
 

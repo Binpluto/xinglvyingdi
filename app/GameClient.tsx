@@ -45,6 +45,9 @@ const continents: Realm[] = [
 ];
 
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
+const XP_PER_LEVEL = 100;
+const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+const xpForLevel = (level: number) => Math.max(0, level - 1) * XP_PER_LEVEL;
 
 export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
   const [data, setData] = useState<GameData | null>(null);
@@ -57,6 +60,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const [teamName, setTeamName] = useState("");
   const [focusMinutes, setFocusMinutes] = useState(25);
   const [activeRealmId, setActiveRealmId] = useState<string | null>(null);
+  const [showLevelGuide, setShowLevelGuide] = useState(false);
 
   useEffect(() => { void load(); }, []);
   useEffect(() => {
@@ -74,7 +78,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     if (!data) return;
     const saved = window.localStorage.getItem("starcamp-active-realm");
     const realm = continents.find((continent) => continent.id === saved);
-    const level = Math.max(1, Math.floor(data.user.xp / 100));
+    const level = levelFromXp(data.user.xp);
     if (realm && level >= realm.level) setActiveRealmId(realm.id);
   }, [data?.user.xp]);
 
@@ -119,6 +123,8 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const displayName = data?.user.name || identity.name.split("@")[0];
   const xp = data?.user.xp ?? 0;
   const coins = data?.user.coins ?? 0;
+  const level = levelFromXp(xp);
+  const levelXp = xp % XP_PER_LEVEL;
   const activeRealm = continents.find((continent) => continent.id === activeRealmId) ?? null;
 
   if (!data) {
@@ -143,7 +149,17 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
             {activeRealm && <div className="realm-status"><span>{activeRealm.icon}</span><div><small>当前驻扎</small><b>{activeRealm.name}</b></div><button onClick={() => setTab("世界")}>切换</button><button aria-label="离开当前大陆" onClick={() => { setActiveRealmId(null); window.localStorage.removeItem("starcamp-active-realm"); }}>×</button></div>}
             <div className="cloud-state"><i /> 云端已同步</div>
             <div className="currency"><span>✦</span><b>{coins}</b></div>
-            <button className="avatar" aria-label="个人中心"><span>{displayName.slice(0, 1)}</span><em>Lv. {Math.max(1, Math.floor(xp / 100))}</em></button>
+            <div className="level-menu">
+              <button className="avatar" aria-label="查看升级规则" aria-expanded={showLevelGuide} onClick={() => setShowLevelGuide((visible) => !visible)}><span>{displayName.slice(0, 1)}</span><em>Lv. {level}</em></button>
+              {showLevelGuide && <aside className="level-guide">
+                <div className="level-guide-head"><span>Lv.{level}</span><div><small>距离 Lv.{level + 1}</small><b>{levelXp} / {XP_PER_LEVEL} EXP</b></div><button aria-label="关闭升级说明" onClick={() => setShowLevelGuide(false)}>×</button></div>
+                <div className="level-guide-progress"><i style={{ width: `${levelXp}%` }} /></div>
+                <h4>旅行者升级规则</h4>
+                <p>从 Lv.1、0 EXP 开始，每累计 100 EXP 提升 1 级。</p>
+                <ul><li><span>完成任务</span><b>+25～80 EXP</b></li><li><span>专注修行</span><b>每分钟 +2 EXP</b></li><li><span>邀请好友</span><b>双方 +100 / +200 EXP</b></li></ul>
+                <small className="level-world-note">提升等级，可逐步解锁新的世界大陆。</small>
+              </aside>}
+            </div>
           </div>
         </header>
 
@@ -178,7 +194,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <section className="hero-card">
       <div className="hero-copy"><span className="chapter">{realm ? `${realm.name} · ${realm.trait}` : "第三章 · 与同伴共赴群星"}</span><h2>{realm ? realm.hero[0] : "一个人的愿望"}<br />{realm ? realm.hero[1] : "汇成世界的光"}</h2><p>{realm ? realm.campStory : "你的每一次行动，都在为小组积累实力，也让世界版图更加明亮。"}</p><button className="gold-button" onClick={() => setTab("世界")}>{realm ? "查看大陆版图" : "进入星旅世界"} <span>→</span></button></div>
       <div className="hero-world" aria-hidden="true"><div className="sun-disc"><span>✦</span></div><div className="mountain mountain-a" /><div className="mountain mountain-b" /><div className="floating-island island-a"><i /></div><div className="floating-island island-b"><i /></div><div className="cloud cloud-a" /></div>
-      <div className="hero-progress"><div className="level-seal">{Math.max(1, Math.floor(data.user.xp / 100))}</div><div><span>冒险阅历</span><b>{data.user.xp} EXP</b><div className="progress-track"><i style={{ width: `${data.user.xp % 100}%` }} /></div></div></div>
+      <div className="hero-progress"><div className="level-seal">{levelFromXp(data.user.xp)}</div><div><span>冒险阅历 · Lv.{levelFromXp(data.user.xp)}</span><b>{data.user.xp} EXP</b><div className="progress-track"><i style={{ width: `${data.user.xp % XP_PER_LEVEL}%` }} /></div></div></div>
     </section>
     <aside className="profile-card glass-card"><div className="card-heading"><div><small>旅行者档案</small><h3>云端旅程</h3></div><span className="sync-orb">✓</span></div><div className="cloud-stats"><div><b>{data.user.focusMinutes}</b><span>累计专注 / 分钟</span></div><div><b>{data.user.referralCount}</b><span>成功邀请 / 人</span></div><div><b>{data.team?.member_count ?? 0}</b><span>同行伙伴 / 人</span></div></div><blockquote>“因相遇而出发，因同行而抵达。”</blockquote></aside>
     <QuestBoard data={data} done={done} act={act} compact />
@@ -265,7 +281,7 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
 }
 
 function World({ data, activeRealmId, onEnter, onLeave }: { data: GameData; activeRealmId: string | null; onEnter: (realm: Realm) => void; onLeave: () => void }) {
-  const level = Math.max(1, Math.floor(data.user.xp / 100));
+  const level = levelFromXp(data.user.xp);
   const unlocked = continents.filter(c => level >= c.level);
   const [view, setView] = useState<"map"|"ranking">("map");
   const [selectedId, setSelectedId] = useState(unlocked.at(-1)?.id ?? "dawn");
@@ -295,7 +311,7 @@ function World({ data, activeRealmId, onEnter, onLeave }: { data: GameData; acti
       </div>
       <aside className={`continent-detail detail-${selected.style} glass-card ${isUnlocked?"":"locked"}`}>
         <div className="detail-banner"><span>{isUnlocked ? selected.icon : "⌾"}</span><div><small>{selected.real} · 世界第 {continents.findIndex(c=>c.id===selected.id)+1} 境</small><h3>{selected.name}</h3><p>{selected.title}</p></div></div>
-        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="realm-trait"><span>{selected.icon}</span><div><small>全站环境特性</small><b>{selected.trait}</b></div></div><div className="explore-progress"><div><span>大陆探索度</span><b>{Math.min(92, 18 + (level-selected.level)*9)}%</b></div><i><em style={{width:`${Math.min(92,18+(level-selected.level)*9)}%`}} /></i></div><div className="region-list">{selected.quests.map((q,i)=><button key={q}><span>{i+1}</span><div><b>{q}</b><small>{i===0?"可探索":i===1?"完成前置区域后开放":"大陆深处"}</small></div><em>→</em></button>)}</div><div className="continent-boss"><span>♢</span><div><small>大陆终局试炼</small><b>{selected.boss}</b></div><em>限定奖励 · {selected.reward}</em></div><button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>{activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}</> : <div className="locked-detail"><span>⌾</span><h4>大陆边界尚未显现</h4><p>旅行者达到 <b>Lv.{selected.level}</b> 后解锁。还需获得 {(selected.level*100-data.user.xp).toLocaleString()} 点冒险阅历。</p><div><i style={{width:`${Math.min(100,data.user.xp/(selected.level*100)*100)}%`}} /></div></div>}
+        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="realm-trait"><span>{selected.icon}</span><div><small>全站环境特性</small><b>{selected.trait}</b></div></div><div className="explore-progress"><div><span>大陆探索度</span><b>{Math.min(92, 18 + (level-selected.level)*9)}%</b></div><i><em style={{width:`${Math.min(92,18+(level-selected.level)*9)}%`}} /></i></div><div className="region-list">{selected.quests.map((q,i)=><button key={q}><span>{i+1}</span><div><b>{q}</b><small>{i===0?"可探索":i===1?"完成前置区域后开放":"大陆深处"}</small></div><em>→</em></button>)}</div><div className="continent-boss"><span>♢</span><div><small>大陆终局试炼</small><b>{selected.boss}</b></div><em>限定奖励 · {selected.reward}</em></div><button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>{activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}</> : <div className="locked-detail"><span>⌾</span><h4>大陆边界尚未显现</h4><p>旅行者达到 <b>Lv.{selected.level}</b> 后解锁。还需获得 {(xpForLevel(selected.level)-data.user.xp).toLocaleString()} 点冒险阅历。</p><div><i style={{width:`${Math.min(100,data.user.xp/Math.max(1,xpForLevel(selected.level))*100)}%`}} /></div></div>}
         <div className="world-milestone"><span>{unlocked.length}/7</span><p>已发现大陆<br/><small>继续完成任务以拓展世界地图</small></p></div>
       </aside>
     </div> : <div className="ranking glass-card atlas-ranking">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div>}

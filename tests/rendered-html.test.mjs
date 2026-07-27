@@ -28,6 +28,10 @@ test("builds the Starcamp email-authenticated application", async () => {
   assert.match(client, /云端已同步/);
   assert.match(client, /五人小组/);
   assert.match(client, /世界地图/);
+  assert.match(client, /XP_PER_LEVEL = 100/);
+  assert.match(client, /从 Lv\.1、0 EXP 开始/);
+  assert.match(authServer, /const startingXp = hasExistingJourney \? existingProgress!\.xp : 0/);
+  assert.doesNotMatch(client, /Math\.max\(1, Math\.floor\([^)]*xp[^)]*\/ 100\)\)/);
   await access(new URL("dist/server/index.js", root));
 });
 

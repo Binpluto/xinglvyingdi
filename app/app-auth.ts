@@ -15,6 +15,14 @@ type AccountRow = {
   locked_until: string | null;
 };
 
+type ExistingProgressRow = {
+  xp: number;
+  focus_minutes: number;
+  completed_quests: number;
+  referral_count: number;
+  team_count: number;
+};
+
 export type AppIdentity = { email: string; displayName: string };
 
 function encodeBase64Url(bytes: Uint8Array) {
@@ -94,15 +102,29 @@ export async function registerAccount(input: { email: string; password: string; 
   validateAccount(email, input.password, displayName);
   const exists = await env.DB.prepare("SELECT 1 FROM auth_accounts WHERE email = ?").bind(email).first();
   if (exists) throw new Error("这个邮箱已经注册，请直接登录");
+  const existingProgress = await env.DB.prepare(`
+    SELECT u.xp, u.focus_minutes,
+      (SELECT COUNT(*) FROM quests q WHERE q.user_email = u.email AND q.completed = 1) AS completed_quests,
+      (SELECT COUNT(*) FROM referrals r WHERE r.referrer_email = u.email OR r.invitee_email = u.email) AS referral_count,
+      (SELECT COUNT(*) FROM team_members tm WHERE tm.user_email = u.email) AS team_count
+    FROM users u WHERE u.email = ?
+  `).bind(email).first<ExistingProgressRow>();
+  const hasExistingJourney = Boolean(
+    existingProgress &&
+    (existingProgress.completed_quests || existingProgress.focus_minutes || existingProgress.referral_count || existingProgress.team_count),
+  );
+  const startingXp = hasExistingJourney ? existingProgress!.xp : 0;
   const salt = new Uint8Array(16);
   crypto.getRandomValues(salt);
   const hash = await passwordHash(input.password, salt);
   await env.DB.batch([
     env.DB.prepare(`
-      INSERT INTO users (email, display_name, invite_code)
-      VALUES (?, ?, ?)
-      ON CONFLICT(email) DO UPDATE SET display_name = excluded.display_name
-    `).bind(email, displayName, makeInviteCode(email)),
+      INSERT INTO users (email, display_name, invite_code, xp)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(email) DO UPDATE SET
+        display_name = excluded.display_name,
+        xp = excluded.xp
+    `).bind(email, displayName, makeInviteCode(email), startingXp),
     env.DB.prepare(`
       INSERT INTO auth_accounts (email, password_hash, password_salt)
       VALUES (?, ?, ?)
