@@ -391,6 +391,18 @@ export async function POST(request: Request) {
             .bind(quest.reward, Math.ceil(quest.reward / 2), identity.email),
         ]);
       }
+    } else if (body.action === "editQuest") {
+      const title = (body.title ?? "").trim().slice(0, 80);
+      const detail = (body.detail ?? "").trim().slice(0, 180);
+      const type = ["主线", "日常", "支线"].includes(body.type ?? "") ? body.type! : "支线";
+      if (title.length < 2) return Response.json({ error: "任务名称至少需要 2 个字" }, { status: 400 });
+      const quest = await db.prepare("SELECT 1 FROM quests WHERE id = ? AND user_email = ?")
+        .bind(body.questId, identity.email).first();
+      if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
+      await db.prepare(`
+        UPDATE quests SET title = ?, detail = ?, type = ?
+        WHERE id = ? AND user_email = ?
+      `).bind(title, detail || "由旅行者亲自整理的任务说明", type, body.questId, identity.email).run();
     } else if (body.action === "createQuest") {
       const title = (body.title ?? "").trim().slice(0, 40);
       const detail = (body.detail ?? "").trim().slice(0, 100);
