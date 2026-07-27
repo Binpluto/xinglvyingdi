@@ -57,6 +57,31 @@ test("supports secure calendar-to-task imports", async () => {
   assert.match(migration, /CREATE UNIQUE INDEX `quests_calendar_event_idx`/);
 });
 
+test("supports encrypted direct Google Calendar synchronization", async () => {
+  const [client, helper, connectRoute, callbackRoute, gameRoute, migration] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/google-calendar.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/connect/route.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/callback/route.ts", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("drizzle/0005_dark_stephen_strange.sql", root), "utf8"),
+  ]);
+
+  assert.match(client, /连接 Google 日历/);
+  assert.match(client, /每两分钟检查一次变化/);
+  assert.match(helper, /calendar\.readonly/);
+  assert.match(helper, /AES-GCM/);
+  assert.match(helper, /syncToken/);
+  assert.match(helper, /google-sync/);
+  assert.match(helper, /event\.status === "cancelled"/);
+  assert.match(connectRoute, /google_oauth_states/);
+  assert.match(callbackRoute, /encryptRefreshToken/);
+  assert.match(callbackRoute, /syncGoogleCalendar/);
+  assert.match(gameRoute, /disconnectGoogleCalendar/);
+  assert.match(migration, /google_calendar_connections/);
+  assert.match(migration, /google_oauth_states/);
+});
+
 test("applies a distinct full-site theme for every continent", async () => {
   const [client, css] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),

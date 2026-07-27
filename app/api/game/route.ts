@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { assertSameOrigin, getAppUser } from "../../app-auth";
+import { syncGoogleCalendar } from "../../google-calendar";
 
 type UserRow = {
   email: string;
@@ -274,6 +275,10 @@ async function dashboard(email: string) {
     FROM realm_progress WHERE user_email = ?
     ORDER BY unlocked DESC, updated_at
   `).bind(email).all();
+  const calendarConnection = await db.prepare(`
+    SELECT google_email AS googleEmail, last_synced_at AS lastSyncedAt, connected_at AS connectedAt
+    FROM google_calendar_connections WHERE user_email = ?
+  `).bind(email).first<{ googleEmail: string | null; lastSyncedAt: string | null; connectedAt: string }>();
 
   return {
     user: {
@@ -290,6 +295,9 @@ async function dashboard(email: string) {
     focusHistory: focusHistory.results,
     inventory: inventory.results,
     realmProgress: realmProgress.results,
+    calendarConnection: calendarConnection
+      ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
+      : { connected: false, googleEmail: null, lastSyncedAt: null },
     team: team ? { ...team, members: members.results } : null,
     leaderboard: leaderboard.results,
   };
@@ -417,6 +425,11 @@ export async function POST(request: Request) {
       const reward = type === "主线" ? 80 : type === "日常" ? 30 : 45;
       await db.prepare("INSERT INTO quests (user_email, title, detail, type, reward) VALUES (?, ?, ?, ?, ?)")
         .bind(identity.email, title, detail || "由旅行者亲自制定的冒险委托", type, reward).run();
+    } else if (body.action === "syncGoogleCalendar") {
+      await syncGoogleCalendar(identity.email);
+    } else if (body.action === "disconnectGoogleCalendar") {
+      await db.prepare("DELETE FROM google_calendar_connections WHERE user_email = ?")
+        .bind(identity.email).run();
     } else if (body.action === "importCalendar") {
       const provider = ["google", "outlook", "icloud", "ics"].includes(body.provider ?? "") ? body.provider! : "ics";
       const rangeDays = Math.max(1, Math.min(30, Number(body.rangeDays) || 7));

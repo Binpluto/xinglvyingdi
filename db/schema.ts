@@ -97,3 +97,19 @@ export const realmProgress = sqliteTable("realm_progress", {
   primaryKey({ columns: [table.userEmail, table.realmId] }),
   index("realm_progress_user_idx").on(table.userEmail),
 ]);
+
+export const googleCalendarConnections = sqliteTable("google_calendar_connections", {
+  userEmail: text("user_email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
+  refreshToken: text("refresh_token").notNull(),
+  googleEmail: text("google_email"),
+  syncToken: text("sync_token"),
+  lastSyncedAt: text("last_synced_at"),
+  connectedAt: text("connected_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const googleOauthStates = sqliteTable("google_oauth_states", {
+  state: text("state").primaryKey(),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("google_oauth_states_expiry_idx").on(table.expiresAt)]);

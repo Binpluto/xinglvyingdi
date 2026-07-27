@@ -9,12 +9,14 @@ type RankTeam = { id: number; name: string; code: string; members: number; stren
 type FocusRecord = { id: number; minutes: number; created_at: string };
 type InventoryItem = { item_key: string; quantity: number; acquired_at: string };
 type RealmProgress = { realmId: string; completedRegions: number; unlocked: number; target: number; unlockedAt: string | null };
+type CalendarConnection = { connected: boolean; googleEmail: string | null; lastSyncedAt: string | null };
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
   quests: Quest[];
   focusHistory: FocusRecord[];
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
+  calendarConnection: CalendarConnection;
   team: Team | null;
   leaderboard: RankTeam[];
 };
@@ -85,6 +87,23 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     if (realm && progress?.unlocked) setActiveRealmId(realm.id);
     else if (saved) window.localStorage.removeItem("starcamp-active-realm");
   }, [data?.realmProgress]);
+  useEffect(() => {
+    const status = new URLSearchParams(window.location.search).get("calendar");
+    if (!status) return;
+    notify(status === "connected" ? "Google 日历连接成功，任务已自动同步" : "Google 日历连接未完成，请重试");
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+  useEffect(() => {
+    if (!data?.calendarConnection.connected) return;
+    const lastSync = data.calendarConnection.lastSyncedAt ? Date.parse(data.calendarConnection.lastSyncedAt) : 0;
+    if (!lastSync || Date.now() - lastSync > 120000) {
+      void act({ action: "syncGoogleCalendar" }, "Google 日历变动已同步");
+    }
+    const interval = window.setInterval(() => {
+      void act({ action: "syncGoogleCalendar" }, "Google 日历变动已同步");
+    }, 120000);
+    return () => window.clearInterval(interval);
+  }, [data?.calendarConnection.connected]);
 
   async function load() {
     const res = await fetch("/api/game");
@@ -189,7 +208,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
     title: quest.title,
     detail: quest.detail,
-    state: quest.source === "google" ? "Google" : quest.source === "outlook" ? "Outlook" : quest.source === "icloud" ? "iCloud" : "日历",
+    state: quest.source.startsWith("google") ? "Google" : quest.source === "outlook" ? "Outlook" : quest.source === "icloud" ? "iCloud" : "日历",
   })) : [
     { time: "08:30", title: "晨间仪式", detail: "补充能量，确定今日航向", state: "已完成" },
     { time: "14:00", title: "知识秘境", detail: "30 分钟无干扰阅读", state: "待出发" },
@@ -230,6 +249,7 @@ function QuestBoard({ data, done, act, compact = false }: { data: GameData; done
   const [editType, setEditType] = useState("日常");
   const [savingQuest, setSavingQuest] = useState(false);
   const [deletingQuest, setDeletingQuest] = useState(false);
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
   const visible = data.quests.filter(q => filter === "全部" || (filter === "日历" ? q.source !== "manual" : q.type === filter));
   async function create() {
     await act({ action: "createQuest", title, detail, type }, "新委托已加入任务卷轴");
@@ -280,13 +300,23 @@ function QuestBoard({ data, done, act, compact = false }: { data: GameData; done
     setDeletingQuest(false);
     if (deleted) setEditingQuestId(null);
   }
-  const sourceLabel = (source: string) => source === "google" ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
-  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => setFilter(v)}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门</small><h3>从常用日历导入每日任务</h3><p>选择未来范围，日程会自动去重并保存到你的云端任务。订阅链接不会被保存。</p></div><span>◫</span></div><div className="provider-grid">{[
-    ["google","G","Google Calendar","使用“日历设置 → 集成日历 → iCal 格式的私密网址”"],
+  async function syncGoogle() {
+    setSyncingGoogle(true);
+    await act({ action: "syncGoogleCalendar" }, "Google 日历已同步到每日任务");
+    setSyncingGoogle(false);
+    setFilter("日历");
+  }
+  async function disconnectGoogle() {
+    if (!window.confirm("确定断开 Google 日历吗？已同步的任务会保留，但不再自动更新。")) return;
+    await act({ action: "disconnectGoogleCalendar" }, "Google 日历已断开");
+  }
+  const sourceLabel = (source: string) => source.startsWith("google") ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
+  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => setFilter(v)}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门</small><h3>一键连接 Google 日历</h3><p>授权后自动同步新增、改名、改时间和删除；网站打开时每两分钟检查一次变化。</p></div><span>◫</span></div>{data.calendarConnection.connected ? <div className="google-live-card connected"><span className="google-calendar-mark">G</span><div><small>Google Calendar 已连接</small><b>{data.calendarConnection.googleEmail || "主日历"}</b><em>{data.calendarConnection.lastSyncedAt ? `上次同步 ${new Date(data.calendarConnection.lastSyncedAt).toLocaleString("zh-CN")}` : "正在进行首次同步"}</em></div><button onClick={() => void syncGoogle()} disabled={syncingGoogle}>{syncingGoogle ? "同步中…" : "立即同步"}</button><button className="disconnect-google" onClick={() => void disconnectGoogle()}>断开</button></div> : <div className="google-live-card"><span className="google-calendar-mark">G</span><div><small>推荐方式 · 无需复制链接</small><b>连接你的 Google 主日历</b><em>仅请求只读权限，授权令牌加密保存在云端</em></div><a href="/api/google-calendar/connect">连接 Google 日历 →</a></div>}<div className="calendar-fallback-title"><span>其他日历或备用导入</span><i /></div><div className="provider-grid">{[
+    ["google","G","Google Calendar ICS","不授权账号时，可使用 iCal 格式的私密网址"],
     ["outlook","O","Outlook / Microsoft 365","使用“设置 → 共享日历 → 发布日历 → ICS”"],
     ["icloud","◆","Apple iCloud","将日历设为公开并复制 webcal 订阅链接"],
     ["ics","↓","通用 ICS 文件","适用于飞书、钉钉、Notion Calendar 等导出的 .ics 文件"],
-  ].map(([key,icon,name,note]) => <button key={key} className={provider === key ? `provider-card ${key} active` : `provider-card ${key}`} onClick={() => setProvider(key)}><span>{icon}</span><div><b>{name}</b><small>{note}</small></div><em>{provider === key ? "已选择" : "选择"}</em></button>)}</div><div className="calendar-import-row"><label className="calendar-link-field"><span>订阅链接</span><input value={calendarUrl} disabled={provider === "ics" && Boolean(calendarText)} onChange={(event) => setCalendarUrl(event.target.value)} placeholder="粘贴 https:// 或 webcal:// 开头的 ICS 链接" /></label><label className="calendar-range"><span>导入范围</span><select value={rangeDays} onChange={(event) => setRangeDays(Number(event.target.value))}><option value={1}>今天</option><option value={7}>未来 7 天</option><option value={14}>未来 14 天</option><option value={30}>未来 30 天</option></select></label><label className="ics-upload"><input type="file" accept=".ics,text/calendar" onChange={(event) => void chooseCalendarFile(event.target.files?.[0])} /><span>{calendarFile ? `✓ ${calendarFile}` : "上传 .ics 文件"}</span></label><button className="calendar-import-button" disabled={importing || (!calendarUrl.trim() && !calendarText)} onClick={() => void importCalendar()}>{importing ? "正在穿越星门…" : "导入任务"}</button></div><p className="calendar-privacy">安全提示：请勿分享日历订阅链接；系统只读取日程并保存任务，不保存链接或邮箱密码。</p></section>}{creating && <div className="quest-composer"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务名称，例如：完成作品集第二页" /><input value={detail} onChange={e => setDetail(e.target.value)} placeholder="写下清晰的完成标准" /><select value={type} onChange={e => setType(e.target.value)}><option>日常</option><option>支线</option><option>主线</option></select><button onClick={() => void create()}>加入卷轴</button></div>}<div className="quest-summary-row"><div><span>✦</span><b>{data.quests.reduce((n,q) => n + (q.done ? q.reward : 0),0)}</b><small>今日已获经验</small></div><div><span>◇</span><b>{data.quests.filter(q => !q.done).length}</b><small>待完成委托</small></div><div><span>▦</span><b>{data.quests.filter(q => q.source !== "manual").length}</b><small>日历导入任务</small></div></div></>}<div className="quest-list">{visible.map((q) => <article key={q.id} className={q.done ? "quest done" : "quest"}>{editingQuestId === q.id ? <div className="quest-edit-form"><div className="quest-edit-fields"><label><span>任务名称</span><input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={80} autoFocus /></label><label className="quest-edit-detail"><span>任务说明</span><textarea value={editDetail} onChange={(event) => setEditDetail(event.target.value)} maxLength={180} rows={2} /></label><label><span>任务类型</span><select value={editType} onChange={(event) => setEditType(event.target.value)}><option>主线</option><option>日常</option><option>支线</option></select></label></div><div className="quest-edit-actions"><button className="delete" onClick={() => void deleteQuest()} disabled={savingQuest || deletingQuest}>{deletingQuest ? "删除中…" : "删除任务"}</button><button onClick={() => setEditingQuestId(null)} disabled={savingQuest || deletingQuest}>取消</button><button className="save" onClick={() => void saveEdit()} disabled={savingQuest || deletingQuest || editTitle.trim().length < 2}>{savingQuest ? "保存中…" : "保存修改"}</button></div></div> : <><button className="quest-check" disabled={Boolean(q.done)} onClick={() => void act({ action: "completeQuest", questId: q.id }, `任务完成：经验 +${q.reward}`)}>{q.done ? "✓" : ""}</button><div className="quest-text"><div className="quest-badges"><span className={`quest-type type-${q.type}`}>{q.type}</span>{q.source !== "manual" && <span className={`calendar-source source-${q.source}`}>▦ {sourceLabel(q.source)}</span>}{q.dueAt && <time>{q.dueAt.length === 10 ? new Date(`${q.dueAt}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : new Date(q.dueAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</time>}</div><h4>{q.title}</h4><p>{q.detail}</p></div><button className="quest-edit-button" aria-label={`编辑任务：${q.title}`} onClick={() => beginEdit(q)}>✎<span>编辑</span></button><div className="reward"><span>✦</span><b>+{q.reward}</b></div></>}</article>)}</div></section>;
+  ].map(([key,icon,name,note]) => <button key={key} className={provider === key ? `provider-card ${key} active` : `provider-card ${key}`} onClick={() => setProvider(key)}><span>{icon}</span><div><b>{name}</b><small>{note}</small></div><em>{provider === key ? "已选择" : "选择"}</em></button>)}</div><div className="calendar-import-row"><label className="calendar-link-field"><span>订阅链接</span><input value={calendarUrl} disabled={provider === "ics" && Boolean(calendarText)} onChange={(event) => setCalendarUrl(event.target.value)} placeholder="粘贴 https:// 或 webcal:// 开头的 ICS 链接" /></label><label className="calendar-range"><span>导入范围</span><select value={rangeDays} onChange={(event) => setRangeDays(Number(event.target.value))}><option value={1}>今天</option><option value={7}>未来 7 天</option><option value={14}>未来 14 天</option><option value={30}>未来 30 天</option></select></label><label className="ics-upload"><input type="file" accept=".ics,text/calendar" onChange={(event) => void chooseCalendarFile(event.target.files?.[0])} /><span>{calendarFile ? `✓ ${calendarFile}` : "上传 .ics 文件"}</span></label><button className="calendar-import-button" disabled={importing || (!calendarUrl.trim() && !calendarText)} onClick={() => void importCalendar()}>{importing ? "正在穿越星门…" : "导入任务"}</button></div><p className="calendar-privacy">安全提示：请勿分享日历订阅链接；系统只读取日程并保存任务，不保存链接或邮箱密码。</p></section>}{creating && <div className="quest-composer"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务名称，例如：完成作品集第二页" /><input value={detail} onChange={e => setDetail(e.target.value)} placeholder="写下清晰的完成标准" /><select value={type} onChange={e => setType(e.target.value)}><option>日常</option><option>支线</option><option>主线</option></select><button onClick={() => void create()}>加入卷轴</button></div>}<div className="quest-summary-row"><div><span>✦</span><b>{data.quests.reduce((n,q) => n + (q.done ? q.reward : 0),0)}</b><small>今日已获经验</small></div><div><span>◇</span><b>{data.quests.filter(q => !q.done).length}</b><small>待完成委托</small></div><div><span>▦</span><b>{data.quests.filter(q => q.source !== "manual").length}</b><small>日历导入任务</small></div></div></>}<div className="quest-list">{visible.map((q) => <article key={q.id} className={q.done ? "quest done" : "quest"}>{editingQuestId === q.id ? <div className="quest-edit-form"><div className="quest-edit-fields"><label><span>任务名称</span><input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={80} autoFocus /></label><label className="quest-edit-detail"><span>任务说明</span><textarea value={editDetail} onChange={(event) => setEditDetail(event.target.value)} maxLength={180} rows={2} /></label><label><span>任务类型</span><select value={editType} onChange={(event) => setEditType(event.target.value)}><option>主线</option><option>日常</option><option>支线</option></select></label></div><div className="quest-edit-actions"><button className="delete" onClick={() => void deleteQuest()} disabled={savingQuest || deletingQuest}>{deletingQuest ? "删除中…" : "删除任务"}</button><button onClick={() => setEditingQuestId(null)} disabled={savingQuest || deletingQuest}>取消</button><button className="save" onClick={() => void saveEdit()} disabled={savingQuest || deletingQuest || editTitle.trim().length < 2}>{savingQuest ? "保存中…" : "保存修改"}</button></div></div> : <><button className="quest-check" disabled={Boolean(q.done)} onClick={() => void act({ action: "completeQuest", questId: q.id }, `任务完成：经验 +${q.reward}`)}>{q.done ? "✓" : ""}</button><div className="quest-text"><div className="quest-badges"><span className={`quest-type type-${q.type}`}>{q.type}</span>{q.source !== "manual" && <span className={`calendar-source ${q.source.startsWith("google") ? "source-google" : `source-${q.source}`}`}>▦ {sourceLabel(q.source)}</span>}{q.dueAt && <time>{q.dueAt.length === 10 ? new Date(`${q.dueAt}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : new Date(q.dueAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</time>}</div><h4>{q.title}</h4><p>{q.detail}</p></div><button className="quest-edit-button" aria-label={`编辑任务：${q.title}`} onClick={() => beginEdit(q)}>✎<span>编辑</span></button><div className="reward"><span>✦</span><b>+{q.reward}</b></div></>}</article>)}</div></section>;
 }
 
 function Focus({ data, timer, running, setRunning, setTimer, focusMinutes, setFocusMinutes, act }: { data: GameData; timer: string; running: boolean; setRunning: (v: boolean) => void; setTimer: React.Dispatch<React.SetStateAction<number>>; focusMinutes: number; setFocusMinutes: (v: number) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
