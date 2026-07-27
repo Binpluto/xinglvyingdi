@@ -17,6 +17,33 @@ type GameData = {
   leaderboard: RankTeam[];
 };
 
+type Realm = {
+  id: string;
+  name: string;
+  real: string;
+  level: number;
+  icon: string;
+  style: string;
+  title: string;
+  story: string;
+  quests: string[];
+  boss: string;
+  reward: string;
+  hero: [string, string];
+  campStory: string;
+  trait: string;
+};
+
+const continents: Realm[] = [
+  { id:"dawn", name:"曦华大陆", real:"亚洲", level:1, icon:"☼", style:"jade", title:"千城与古卷之地", story:"古老智慧与未来都市共存，完成学习、规划和长期成长任务。", quests:["知识古塔","习惯茶庭","千阶书院"], boss:"时间之龙", reward:"曦华罗盘", hero:["晨光落在古卷","新的知识正在苏醒"], campStory:"玉色山岚环绕营地，适合学习、规划与建立稳定习惯。", trait:"智慧 · 秩序 · 长期成长" },
+  { id:"crown", name:"苍冠大陆", real:"欧洲", level:3, icon:"♜", style:"blue", title:"城堡与创造之地", story:"穿行艺术工坊与雾中古堡，挑战表达、创造和审美修行。", quests:["灵感画廊","工匠长街","诗人钟楼"], boss:"完美主义者", reward:"苍银羽笔", hero:["越过雾中古堡","让灵感成为作品"], campStory:"银蓝穹顶与古典拱窗守护创造，适合艺术、表达和精细打磨。", trait:"创造 · 审美 · 表达" },
+  { id:"ember", name:"赤土大陆", real:"非洲", level:5, icon:"☀", style:"ember", title:"烈阳与生命之地", story:"辽阔草原回响着生命鼓点，锻炼健康、勇气与行动能力。", quests:["晨曦草原","勇气峡谷","生命绿洲"], boss:"倦怠巨兽", reward:"赤阳护符", hero:["烈阳点燃旷野","用行动回应生命"], campStory:"赤金阳光照亮辽阔草原，适合运动、健康与需要勇气的挑战。", trait:"生命 · 勇气 · 行动力" },
+  { id:"storm", name:"风暴大陆", real:"北美洲", level:8, icon:"↯", style:"storm", title:"峡谷与革新之地", story:"从自由港驶向雷霆峡谷，完成事业、创新与突破类挑战。", quests:["创业者港","雷霆工坊","自由之路"], boss:"拖延风暴", reward:"先驱徽记", hero:["驾驭雷霆风暴","向未知发起突破"], campStory:"电光穿过峡谷与高塔，适合事业冲刺、创新实验与快速决策。", trait:"革新 · 突破 · 事业" },
+  { id:"verdant", name:"森灵大陆", real:"南美洲", level:12, icon:"❧", style:"forest", title:"雨林与心灵之地", story:"在繁茂雨林中理解情绪、关系和内在成长的神秘连接。", quests:["回声雨林","关系藤桥","心流瀑布"], boss:"迷惘之影", reward:"森灵种子", hero:["听见雨林回声","与内心重新连接"], campStory:"藤蔓、雨雾与萤火构成柔软庇护，适合情绪、关系和心灵成长。", trait:"关系 · 情绪 · 内在成长" },
+  { id:"coral", name:"珊海群岛", real:"大洋洲", level:16, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:["珊瑚学宫","月湾营地","群岛协作"], boss:"失衡海兽", reward:"潮汐贝冠", hero:["跟随温柔潮汐","找回生活的平衡"], campStory:"珊瑚海湾与月光潮汐舒展身心，适合休息、协作与自由创造。", trait:"平衡 · 协作 · 松弛" },
+  { id:"polar", name:"极星大陆", real:"南极洲", level:20, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:["寂静冰原","极光神殿","世界之心"], boss:"旧日的自己", reward:"极星之证", hero:["在极光之下","看见真正的自己"], campStory:"冰晶与极光洗去噪音，适合深度反思、长期愿景与自我超越。", trait:"纯粹 · 反思 · 自我超越" },
+];
+
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 
 export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
@@ -29,6 +56,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const [teamInput, setTeamInput] = useState("");
   const [teamName, setTeamName] = useState("");
   const [focusMinutes, setFocusMinutes] = useState(25);
+  const [activeRealmId, setActiveRealmId] = useState<string | null>(null);
 
   useEffect(() => { void load(); }, []);
   useEffect(() => {
@@ -42,6 +70,13 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       void act({ action: "focus", minutes: focusMinutes }, "秘境完成：专注记录已保存到云端");
     }
   }, [timer, running]);
+  useEffect(() => {
+    if (!data) return;
+    const saved = window.localStorage.getItem("starcamp-active-realm");
+    const realm = continents.find((continent) => continent.id === saved);
+    const level = Math.max(1, Math.floor(data.user.xp / 100));
+    if (realm && level >= realm.level) setActiveRealmId(realm.id);
+  }, [data?.user.xp]);
 
   async function load() {
     const res = await fetch("/api/game");
@@ -84,16 +119,17 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const displayName = data?.user.name || identity.name.split("@")[0];
   const xp = data?.user.xp ?? 0;
   const coins = data?.user.coins ?? 0;
+  const activeRealm = continents.find((continent) => continent.id === activeRealmId) ?? null;
 
   if (!data) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
   }
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell realm-${activeRealm?.style ?? "base"}`} data-realm={activeRealm?.id ?? "base"}>
       <div className="aurora aurora-one" /><div className="aurora aurora-two" />
       <aside className="side-nav">
-        <button className="brand-mark" aria-label="星旅营地">✧</button>
+        <button className="brand-mark" aria-label="星旅营地">{activeRealm?.icon ?? "✧"}</button>
         <div className="nav-stack">
           {nav.map(([label, icon]) => <button key={label} className={tab === label ? "nav-item active" : "nav-item"} onClick={() => setTab(label)}><span>{icon}</span><small>{label}</small></button>)}
         </div>
@@ -102,20 +138,21 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
 
       <section className="main-content">
         <header className="topbar">
-          <div><p className="eyebrow">STARCAMP · 星旅营地</p><h1>{tab === "营地" ? `早上好，${displayName}` : tab}</h1></div>
+          <div><p className="eyebrow">{activeRealm ? `${activeRealm.real.toUpperCase()} REALM · ${activeRealm.trait}` : "STARCAMP · 星旅营地"}</p><h1>{tab === "营地" ? `早上好，${displayName}` : tab}</h1></div>
           <div className="top-actions">
+            {activeRealm && <div className="realm-status"><span>{activeRealm.icon}</span><div><small>当前驻扎</small><b>{activeRealm.name}</b></div><button onClick={() => setTab("世界")}>切换</button><button aria-label="离开当前大陆" onClick={() => { setActiveRealmId(null); window.localStorage.removeItem("starcamp-active-realm"); }}>×</button></div>}
             <div className="cloud-state"><i /> 云端已同步</div>
             <div className="currency"><span>✦</span><b>{coins}</b></div>
             <button className="avatar" aria-label="个人中心"><span>{displayName.slice(0, 1)}</span><em>Lv. {Math.max(1, Math.floor(xp / 100))}</em></button>
           </div>
         </header>
 
-        {tab === "营地" && <Camp data={data} done={done} setTab={setTab} act={act} />}
+        {tab === "营地" && <Camp data={data} done={done} setTab={setTab} act={act} realm={activeRealm} />}
         {tab === "任务" && <QuestBoard data={data} done={done} act={act} />}
         {tab === "专注" && <Focus data={data} timer={time} running={running} setRunning={setRunning} setTimer={setTimer} focusMinutes={focusMinutes} setFocusMinutes={setFocusMinutes} act={act} />}
         {tab === "行囊" && <Bag data={data} act={act} />}
         {tab === "小组" && <TeamHall data={data} teamName={teamName} setTeamName={setTeamName} teamInput={teamInput} setTeamInput={setTeamInput} act={act} copy={copy} />}
-        {tab === "世界" && <World data={data} />}
+        {tab === "世界" && <World data={data} activeRealmId={activeRealmId} onEnter={(realm) => { setActiveRealmId(realm.id); window.localStorage.setItem("starcamp-active-realm", realm.id); setTab("营地"); notify(`已进入${realm.name}：全站环境已切换`); }} onLeave={() => { setActiveRealmId(null); window.localStorage.removeItem("starcamp-active-realm"); }} />}
       </section>
 
       <button className="invite-fab" onClick={() => setTab("小组")}><span>♙</span>邀请好友</button>
@@ -125,7 +162,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   );
 }
 
-function Camp({ data, done, setTab, act }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
   const calendarAgenda = data.quests.filter((quest) => quest.dueAt && !quest.done).slice(0, 3);
   const agenda = calendarAgenda.length ? calendarAgenda.map((quest) => ({
     time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
@@ -139,7 +176,7 @@ function Camp({ data, done, setTab, act }: { data: GameData; done: number; setTa
   ];
   return <><div className="page-grid">
     <section className="hero-card">
-      <div className="hero-copy"><span className="chapter">第三章 · 与同伴共赴群星</span><h2>一个人的愿望<br />汇成世界的光</h2><p>你的每一次行动，都在为小组积累实力，也让世界版图更加明亮。</p><button className="gold-button" onClick={() => setTab("世界")}>进入星旅世界 <span>→</span></button></div>
+      <div className="hero-copy"><span className="chapter">{realm ? `${realm.name} · ${realm.trait}` : "第三章 · 与同伴共赴群星"}</span><h2>{realm ? realm.hero[0] : "一个人的愿望"}<br />{realm ? realm.hero[1] : "汇成世界的光"}</h2><p>{realm ? realm.campStory : "你的每一次行动，都在为小组积累实力，也让世界版图更加明亮。"}</p><button className="gold-button" onClick={() => setTab("世界")}>{realm ? "查看大陆版图" : "进入星旅世界"} <span>→</span></button></div>
       <div className="hero-world" aria-hidden="true"><div className="sun-disc"><span>✦</span></div><div className="mountain mountain-a" /><div className="mountain mountain-b" /><div className="floating-island island-a"><i /></div><div className="floating-island island-b"><i /></div><div className="cloud cloud-a" /></div>
       <div className="hero-progress"><div className="level-seal">{Math.max(1, Math.floor(data.user.xp / 100))}</div><div><span>冒险阅历</span><b>{data.user.xp} EXP</b><div className="progress-track"><i style={{ width: `${data.user.xp % 100}%` }} /></div></div></div>
     </section>
@@ -227,16 +264,7 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
   </section>;
 }
 
-function World({ data }: { data: GameData }) {
-  const continents = [
-    { id:"dawn", name:"曦华大陆", real:"亚洲", level:1, icon:"☼", style:"jade", title:"千城与古卷之地", story:"古老智慧与未来都市共存，完成学习、规划和长期成长任务。", quests:["知识古塔","习惯茶庭","千阶书院"], boss:"时间之龙", reward:"曦华罗盘" },
-    { id:"crown", name:"苍冠大陆", real:"欧洲", level:3, icon:"♜", style:"blue", title:"城堡与创造之地", story:"穿行艺术工坊与雾中古堡，挑战表达、创造和审美修行。", quests:["灵感画廊","工匠长街","诗人钟楼"], boss:"完美主义者", reward:"苍银羽笔" },
-    { id:"ember", name:"赤土大陆", real:"非洲", level:5, icon:"☀", style:"ember", title:"烈阳与生命之地", story:"辽阔草原回响着生命鼓点，锻炼健康、勇气与行动能力。", quests:["晨曦草原","勇气峡谷","生命绿洲"], boss:"倦怠巨兽", reward:"赤阳护符" },
-    { id:"storm", name:"风暴大陆", real:"北美洲", level:8, icon:"↯", style:"storm", title:"峡谷与革新之地", story:"从自由港驶向雷霆峡谷，完成事业、创新与突破类挑战。", quests:["创业者港","雷霆工坊","自由之路"], boss:"拖延风暴", reward:"先驱徽记" },
-    { id:"verdant", name:"森灵大陆", real:"南美洲", level:12, icon:"❧", style:"forest", title:"雨林与心灵之地", story:"在繁茂雨林中理解情绪、关系和内在成长的神秘连接。", quests:["回声雨林","关系藤桥","心流瀑布"], boss:"迷惘之影", reward:"森灵种子" },
-    { id:"coral", name:"珊海群岛", real:"大洋洲", level:16, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:["珊瑚学宫","月湾营地","群岛协作"], boss:"失衡海兽", reward:"潮汐贝冠" },
-    { id:"polar", name:"极星大陆", real:"南极洲", level:20, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:["寂静冰原","极光神殿","世界之心"], boss:"旧日的自己", reward:"极星之证" },
-  ];
+function World({ data, activeRealmId, onEnter, onLeave }: { data: GameData; activeRealmId: string | null; onEnter: (realm: Realm) => void; onLeave: () => void }) {
   const level = Math.max(1, Math.floor(data.user.xp / 100));
   const unlocked = continents.filter(c => level >= c.level);
   const [view, setView] = useState<"map"|"ranking">("map");
@@ -247,7 +275,7 @@ function World({ data }: { data: GameData }) {
 
   return <section className="atlas-panel">
     <div className="atlas-header">
-      <div><span className="chapter">星旅世界 · 七境地图</span><h2>向着尚未抵达的大陆</h2><p>现实七大洲化作不同文明与试炼。提升等级，逐步解锁世界边界。</p></div>
+      <div><span className="chapter">星旅世界 · 七境地图</span><h2>向着尚未抵达的大陆</h2><p>进入大陆后，营地、任务、专注、行囊与小组都会呈现该地区独有的环境与气质。</p></div>
       <div className="atlas-level"><span>旅行者等级</span><strong>Lv. {level}</strong><small>{next ? `下一大陆 Lv.${next.level} 解锁` : "七境全部开放"}</small></div>
     </div>
     <div className="atlas-tabs"><button className={view==="map"?"active":""} onClick={()=>setView("map")}>◎ 世界地图</button><button className={view==="ranking"?"active":""} onClick={()=>setView("ranking")}>♙ 小组排行</button></div>
@@ -267,7 +295,7 @@ function World({ data }: { data: GameData }) {
       </div>
       <aside className={`continent-detail detail-${selected.style} glass-card ${isUnlocked?"":"locked"}`}>
         <div className="detail-banner"><span>{isUnlocked ? selected.icon : "⌾"}</span><div><small>{selected.real} · 世界第 {continents.findIndex(c=>c.id===selected.id)+1} 境</small><h3>{selected.name}</h3><p>{selected.title}</p></div></div>
-        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="explore-progress"><div><span>大陆探索度</span><b>{Math.min(92, 18 + (level-selected.level)*9)}%</b></div><i><em style={{width:`${Math.min(92,18+(level-selected.level)*9)}%`}} /></i></div><div className="region-list">{selected.quests.map((q,i)=><button key={q}><span>{i+1}</span><div><b>{q}</b><small>{i===0?"可探索":i===1?"完成前置区域后开放":"大陆深处"}</small></div><em>→</em></button>)}</div><div className="continent-boss"><span>♢</span><div><small>大陆终局试炼</small><b>{selected.boss}</b></div><em>限定奖励 · {selected.reward}</em></div><button className="enter-continent">进入 {selected.name}</button></> : <div className="locked-detail"><span>⌾</span><h4>大陆边界尚未显现</h4><p>旅行者达到 <b>Lv.{selected.level}</b> 后解锁。还需获得 {(selected.level*100-data.user.xp).toLocaleString()} 点冒险阅历。</p><div><i style={{width:`${Math.min(100,data.user.xp/(selected.level*100)*100)}%`}} /></div></div>}
+        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="realm-trait"><span>{selected.icon}</span><div><small>全站环境特性</small><b>{selected.trait}</b></div></div><div className="explore-progress"><div><span>大陆探索度</span><b>{Math.min(92, 18 + (level-selected.level)*9)}%</b></div><i><em style={{width:`${Math.min(92,18+(level-selected.level)*9)}%`}} /></i></div><div className="region-list">{selected.quests.map((q,i)=><button key={q}><span>{i+1}</span><div><b>{q}</b><small>{i===0?"可探索":i===1?"完成前置区域后开放":"大陆深处"}</small></div><em>→</em></button>)}</div><div className="continent-boss"><span>♢</span><div><small>大陆终局试炼</small><b>{selected.boss}</b></div><em>限定奖励 · {selected.reward}</em></div><button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>{activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}</> : <div className="locked-detail"><span>⌾</span><h4>大陆边界尚未显现</h4><p>旅行者达到 <b>Lv.{selected.level}</b> 后解锁。还需获得 {(selected.level*100-data.user.xp).toLocaleString()} 点冒险阅历。</p><div><i style={{width:`${Math.min(100,data.user.xp/(selected.level*100)*100)}%`}} /></div></div>}
         <div className="world-milestone"><span>{unlocked.length}/7</span><p>已发现大陆<br/><small>继续完成任务以拓展世界地图</small></p></div>
       </aside>
     </div> : <div className="ranking glass-card atlas-ranking">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div>}

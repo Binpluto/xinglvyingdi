@@ -47,3 +47,19 @@ test("supports secure calendar-to-task imports", async () => {
   assert.match(migration, /ADD `due_at`/);
   assert.match(migration, /CREATE UNIQUE INDEX `quests_calendar_event_idx`/);
 });
+
+test("applies a distinct full-site theme for every continent", async () => {
+  const [client, css] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  for (const realm of ["jade", "blue", "ember", "storm", "forest", "coral", "polar"]) {
+    assert.match(client, new RegExp(`style:"${realm}"`));
+    assert.match(css, new RegExp(`\\.app-shell\\.realm-${realm}`));
+  }
+  assert.match(client, /starcamp-active-realm/);
+  assert.match(client, /全站环境已切换/);
+  assert.match(client, /当前驻扎/);
+  assert.match(css, /\.realm-status/);
+});
