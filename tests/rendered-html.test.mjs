@@ -92,7 +92,7 @@ test("persists branching continent progression", async () => {
   assert.match(migration, /CREATE TABLE `realm_progress`/);
 });
 
-test("allows every daily quest to be edited securely", async () => {
+test("allows every daily quest to be edited and deleted securely", async () => {
   const [client, route] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
@@ -101,6 +101,10 @@ test("allows every daily quest to be edited securely", async () => {
   assert.match(client, /编辑任务：/);
   assert.match(client, /保存修改/);
   assert.match(client, /任务内容已更新并保存到云端/);
+  assert.match(client, /删除任务/);
+  assert.match(client, /window\.confirm/);
   assert.match(route, /body\.action === "editQuest"/);
+  assert.match(route, /body\.action === "deleteQuest"/);
+  assert.match(route, /DELETE FROM quests WHERE id = \? AND user_email = \?/);
   assert.match(route, /WHERE id = \? AND user_email = \?/);
 });
