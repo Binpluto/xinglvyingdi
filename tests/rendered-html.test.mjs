@@ -21,6 +21,9 @@ test("builds the Starcamp email-authenticated application", async () => {
   assert.match(authClient, /注册账号/);
   assert.match(authRoute, /registerAccount/);
   assert.match(authServer, /PBKDF2/);
+  assert.match(authServer, /PBKDF2_ITERATIONS = 100_000/);
+  assert.match(authRoute, /注册暂时未完成，请稍后重试/);
+  assert.match(authClient, /使用 8–72 个字符/);
   assert.match(authServer, /HttpOnly; SameSite=Lax/);
   assert.match(client, /云端已同步/);
   assert.match(client, /五人小组/);

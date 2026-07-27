@@ -26,16 +26,24 @@ export default function AuthClient() {
     event.preventDefault();
     setError("");
     setSubmitting(true);
-    const response = await fetch("/api/auth", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: mode, email, password, displayName }),
-    });
-    const data = await response.json();
-    setSubmitting(false);
-    if (!response.ok) return setError(data.error ?? "操作失败，请稍后重试");
-    setUser(data.user);
-    setPassword("");
+    try {
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: mode, email, password, displayName }),
+      });
+      const data = await response.json() as { user?: Identity; error?: string };
+      if (!response.ok || !data.user) {
+        setError(data.error ?? (mode === "register" ? "注册失败，请稍后重试" : "登录失败，请稍后重试"));
+        return;
+      }
+      setUser(data.user);
+      setPassword("");
+    } catch {
+      setError("无法连接云端，请检查网络后重试");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function logout() {
@@ -70,7 +78,7 @@ export default function AuthClient() {
         <form className="email-auth-form" onSubmit={submit}>
           {mode === "register" && <label><span>旅行者昵称</span><input autoComplete="name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：星野" required minLength={2} maxLength={24} /></label>}
           <label><span>邮箱地址</span><input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" required /></label>
-          <label><span>密码</span><input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 个字符" required minLength={8} maxLength={72} /></label>
+          <label><span>密码</span><input type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 8 个字符" required minLength={8} maxLength={72} />{mode === "register" && <small className="password-hint">使用 8–72 个字符，可包含字母、数字和符号</small>}</label>
           {error && <div className="auth-error" role="alert">! {error}</div>}
           <button className="auth-button" type="submit" disabled={submitting}>
             {submitting ? "正在开启星门…" : mode === "login" ? "邮箱登录" : "注册并开始旅程"} <span>→</span>

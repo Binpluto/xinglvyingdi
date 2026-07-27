@@ -2,6 +2,8 @@ import { env } from "cloudflare:workers";
 
 const SESSION_COOKIE = "starcamp_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
+// Cloudflare Workers caps a single PBKDF2 operation at 100,000 iterations.
+const PBKDF2_ITERATIONS = 100_000;
 const encoder = new TextEncoder();
 
 type AccountRow = {
@@ -34,7 +36,7 @@ async function digest(value: string) {
 async function passwordHash(password: string, salt: Uint8Array) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const result = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations: 210_000 },
+    { name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS },
     key,
     256,
   );
