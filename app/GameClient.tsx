@@ -32,7 +32,7 @@ type Realm = {
   style: string;
   title: string;
   story: string;
-  quests: string[];
+  quests: { name: string; criteria: [string, string, string] }[];
   boss: string;
   reward: string;
   hero: [string, string];
@@ -41,18 +41,34 @@ type Realm = {
 };
 
 const continents: Realm[] = [
-  { id:"dawn", name:"曦华大陆", real:"亚洲", xpRequired:0, difficulty:"启程", taskReward:30, icon:"☼", style:"jade", title:"千城与古卷之地", story:"古老智慧与未来都市共存，完成学习、规划和长期成长任务。", quests:["知识古塔","习惯茶庭","千阶书院"], boss:"时间之龙", reward:"曦华罗盘", hero:["晨光落在古卷","新的知识正在苏醒"], campStory:"玉色山岚环绕营地，适合学习、规划与建立稳定习惯。", trait:"智慧 · 秩序 · 长期成长" },
-  { id:"crown", name:"苍冠大陆", real:"欧洲", xpRequired:300, difficulty:"容易", taskReward:45, icon:"♜", style:"blue", title:"城堡与创造之地", story:"穿行艺术工坊与雾中古堡，挑战表达、创造和审美修行。", quests:["灵感画廊","工匠长街","诗人钟楼"], boss:"完美主义者", reward:"苍银羽笔", hero:["越过雾中古堡","让灵感成为作品"], campStory:"银蓝穹顶与古典拱窗守护创造，适合艺术、表达和精细打磨。", trait:"创造 · 审美 · 表达" },
-  { id:"ember", name:"赤土大陆", real:"非洲", xpRequired:650, difficulty:"普通", taskReward:55, icon:"☀", style:"ember", title:"烈阳与生命之地", story:"辽阔草原回响着生命鼓点，锻炼健康、勇气与行动能力。", quests:["晨曦草原","勇气峡谷","生命绿洲"], boss:"倦怠巨兽", reward:"赤阳护符", hero:["烈阳点燃旷野","用行动回应生命"], campStory:"赤金阳光照亮辽阔草原，适合运动、健康与需要勇气的挑战。", trait:"生命 · 勇气 · 行动力" },
-  { id:"storm", name:"风暴大陆", real:"北美洲", xpRequired:1100, difficulty:"进阶", taskReward:70, icon:"↯", style:"storm", title:"峡谷与革新之地", story:"从自由港驶向雷霆峡谷，完成事业、创新与突破类挑战。", quests:["创业者港","雷霆工坊","自由之路"], boss:"拖延风暴", reward:"先驱徽记", hero:["驾驭雷霆风暴","向未知发起突破"], campStory:"电光穿过峡谷与高塔，适合事业冲刺、创新实验与快速决策。", trait:"革新 · 突破 · 事业" },
-  { id:"verdant", name:"森灵大陆", real:"南美洲", xpRequired:1700, difficulty:"困难", taskReward:85, icon:"❧", style:"forest", title:"雨林与心灵之地", story:"在繁茂雨林中理解情绪、关系和内在成长的神秘连接。", quests:["回声雨林","关系藤桥","心流瀑布"], boss:"迷惘之影", reward:"森灵种子", hero:["听见雨林回声","与内心重新连接"], campStory:"藤蔓、雨雾与萤火构成柔软庇护，适合情绪、关系和心灵成长。", trait:"关系 · 情绪 · 内在成长" },
-  { id:"coral", name:"珊海群岛", real:"大洋洲", xpRequired:2400, difficulty:"艰深", taskReward:105, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:["珊瑚学宫","月湾营地","群岛协作"], boss:"失衡海兽", reward:"潮汐贝冠", hero:["跟随温柔潮汐","找回生活的平衡"], campStory:"珊瑚海湾与月光潮汐舒展身心，适合休息、协作与自由创造。", trait:"平衡 · 协作 · 松弛" },
-  { id:"polar", name:"极星大陆", real:"南极洲", xpRequired:3300, difficulty:"传说", taskReward:130, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:["寂静冰原","极光神殿","世界之心"], boss:"旧日的自己", reward:"极星之证", hero:["在极光之下","看见真正的自己"], campStory:"冰晶与极光洗去噪音，适合深度反思、长期愿景与自我超越。", trait:"纯粹 · 反思 · 自我超越" },
+  { id:"dawn", name:"曦华大陆", real:"亚洲", xpRequired:0, difficulty:"启程", taskReward:30, icon:"☼", style:"jade", title:"千城与古卷之地", story:"古老智慧与未来都市共存，完成学习、规划和长期成长任务。", quests:[{name:"知识古塔",criteria:["完成至少 30 分钟主题学习","记录 3 条可复用笔记","写明一个下一步行动"]},{name:"习惯茶庭",criteria:["连续执行选定习惯 3 次","记录每次完成时间","复盘一个阻碍与改进"]},{name:"千阶书院",criteria:["完成一个阶段性学习成果","输出可查看的总结或作品","设定下一阶段目标"]}], boss:"时间之龙", reward:"曦华罗盘", hero:["晨光落在古卷","新的知识正在苏醒"], campStory:"玉色山岚环绕营地，适合学习、规划与建立稳定习惯。", trait:"智慧 · 秩序 · 长期成长" },
+  { id:"crown", name:"苍冠大陆", real:"欧洲", xpRequired:300, difficulty:"容易", taskReward:45, icon:"♜", style:"blue", title:"城堡与创造之地", story:"穿行艺术工坊与雾中古堡，挑战表达、创造和审美修行。", quests:[{name:"灵感画廊",criteria:["收集并整理 5 个灵感素材","完成一份创意草稿","说明最终选择的创意方向"]},{name:"工匠长街",criteria:["完成至少 45 分钟精细制作","修正一个明确的质量问题","保存可查看的阶段成果"]},{name:"诗人钟楼",criteria:["完成一次公开或书面表达","根据反馈修改一次","归档最终版本"]}], boss:"完美主义者", reward:"苍银羽笔", hero:["越过雾中古堡","让灵感成为作品"], campStory:"银蓝穹顶与古典拱窗守护创造，适合艺术、表达和精细打磨。", trait:"创造 · 审美 · 表达" },
+  { id:"ember", name:"赤土大陆", real:"非洲", xpRequired:650, difficulty:"普通", taskReward:55, icon:"☀", style:"ember", title:"烈阳与生命之地", story:"辽阔草原回响着生命鼓点，锻炼健康、勇气与行动能力。", quests:[{name:"晨曦草原",criteria:["完成一次 30 分钟运动","记录运动类型与时长","完成拉伸和补水"]},{name:"勇气峡谷",criteria:["完成一件持续拖延的事情","留下可检查的完成结果","记录迈出第一步的方法"]},{name:"生命绿洲",criteria:["完成一次身心状态检查","安排一项恢复精力的行动","写下未来 7 天健康计划"]}], boss:"倦怠巨兽", reward:"赤阳护符", hero:["烈阳点燃旷野","用行动回应生命"], campStory:"赤金阳光照亮辽阔草原，适合运动、健康与需要勇气的挑战。", trait:"生命 · 勇气 · 行动力" },
+  { id:"storm", name:"风暴大陆", real:"北美洲", xpRequired:1100, difficulty:"进阶", taskReward:70, icon:"↯", style:"storm", title:"峡谷与革新之地", story:"从自由港驶向雷霆峡谷，完成事业、创新与突破类挑战。", quests:[{name:"创业者港",criteria:["定义一个可验证的事业目标","完成最小可行行动","记录结果与关键数据"]},{name:"雷霆工坊",criteria:["完成一次新方法实验","对比实验前后的差异","决定保留或调整的方案"]},{name:"自由之路",criteria:["解决一个关键工作阻碍","交付可检查的成果","制定下一次突破计划"]}], boss:"拖延风暴", reward:"先驱徽记", hero:["驾驭雷霆风暴","向未知发起突破"], campStory:"电光穿过峡谷与高塔，适合事业冲刺、创新实验与快速决策。", trait:"革新 · 突破 · 事业" },
+  { id:"verdant", name:"森灵大陆", real:"南美洲", xpRequired:1700, difficulty:"困难", taskReward:85, icon:"❧", style:"forest", title:"雨林与心灵之地", story:"在繁茂雨林中理解情绪、关系和内在成长的神秘连接。", quests:[{name:"回声雨林",criteria:["完成一次 15 分钟情绪记录","识别情绪背后的真实需要","写下一个温和回应"]},{name:"关系藤桥",criteria:["与重要的人进行一次真诚沟通","清楚表达需求并认真倾听","记录双方达成的共识"]},{name:"心流瀑布",criteria:["完成一次 45 分钟无干扰投入","产出明确的阶段成果","记录进入心流的触发条件"]}], boss:"迷惘之影", reward:"森灵种子", hero:["听见雨林回声","与内心重新连接"], campStory:"藤蔓、雨雾与萤火构成柔软庇护，适合情绪、关系和心灵成长。", trait:"关系 · 情绪 · 内在成长" },
+  { id:"coral", name:"珊海群岛", real:"大洋洲", xpRequired:2400, difficulty:"艰深", taskReward:105, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:[{name:"珊瑚学宫",criteria:["完成一次跨领域学习","把新知识用于一个现实问题","记录应用结果"]},{name:"月湾营地",criteria:["安排并完成一次高质量休息","休息期间停止工作信息输入","记录恢复前后的精力变化"]},{name:"群岛协作",criteria:["与至少一位伙伴明确分工","共同完成一个可查看成果","完成一次协作复盘"]}], boss:"失衡海兽", reward:"潮汐贝冠", hero:["跟随温柔潮汐","找回生活的平衡"], campStory:"珊瑚海湾与月光潮汐舒展身心，适合休息、协作与自由创造。", trait:"平衡 · 协作 · 松弛" },
+  { id:"polar", name:"极星大陆", real:"南极洲", xpRequired:3300, difficulty:"传说", taskReward:130, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:[{name:"寂静冰原",criteria:["完成一次 60 分钟深度独处","关闭非必要信息与通知","记录最重要的三个发现"]},{name:"极光神殿",criteria:["回顾一个长期目标的真实动机","删除或调整一个不再适合的目标","写下新的行动承诺"]},{name:"世界之心",criteria:["完成整段旅程的系统复盘","总结最重要的成长证据","制定下一阶段人生蓝图"]}], boss:"旧日的自己", reward:"极星之证", hero:["在极光之下","看见真正的自己"], campStory:"冰晶与极光洗去噪音，适合深度反思、长期愿景与自我超越。", trait:"纯粹 · 反思 · 自我超越" },
 ];
 
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const questDateKey = (quest: Quest) => {
+  if (!quest.dueAt) return "";
+  if (quest.dueAt.length === 10) return quest.dueAt;
+  const date = new Date(quest.dueAt);
+  return Number.isNaN(date.getTime()) ? "" : localDateKey(date);
+};
+const sortQuests = (quests: Quest[]) => {
+  const today = localDateKey(new Date());
+  const rank = (quest: Quest) => quest.done ? 3 : questDateKey(quest) === today ? 0 : !quest.dueAt ? 1 : 2;
+  return [...quests].sort((left, right) =>
+    rank(left) - rank(right)
+    || (left.dueAt || "9999").localeCompare(right.dueAt || "9999")
+    || right.id - left.id,
+  );
+};
 
 export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
   const [data, setData] = useState<GameData | null>(null);
@@ -203,7 +219,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
 }
 
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
-  const calendarAgenda = data.quests.filter((quest) => quest.dueAt && !quest.done).slice(0, 3);
+  const calendarAgenda = sortQuests(data.quests.filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
   const agenda = calendarAgenda.length ? calendarAgenda.map((quest) => ({
     time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
     title: quest.title,
@@ -250,7 +266,7 @@ function QuestBoard({ data, done, act, compact = false }: { data: GameData; done
   const [savingQuest, setSavingQuest] = useState(false);
   const [deletingQuest, setDeletingQuest] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
-  const visible = data.quests.filter(q => filter === "全部" || (filter === "日历" ? q.source !== "manual" : q.type === filter));
+  const visible = sortQuests(data.quests.filter(q => filter === "全部" || (filter === "日历" ? q.source !== "manual" : q.type === filter)));
   async function create() {
     await act({ action: "createQuest", title, detail, type }, "新委托已加入任务卷轴");
     setTitle(""); setDetail(""); setCreating(false);
@@ -358,6 +374,8 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
   const canChooseTarget = !unfinished;
   const [view, setView] = useState<"map"|"ranking">("map");
   const [selectedId, setSelectedId] = useState(target?.id ?? unlocked.at(-1)?.id ?? "dawn");
+  const [verifyingTask, setVerifyingTask] = useState<{ realmId: string; regionIndex: number } | null>(null);
+  const [checkedCriteria, setCheckedCriteria] = useState<number[]>([]);
   const selected = continents.find(c => c.id === selectedId) ?? continents[0];
   const selectedProgress = progressFor(selected.id);
   const isUnlocked = Boolean(selectedProgress?.unlocked);
@@ -365,6 +383,33 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
   const completedRegions = selectedProgress?.completedRegions ?? 0;
   const remainingXp = Math.max(0, selected.xpRequired - data.user.xp);
   const thresholdProgress = selected.xpRequired ? Math.min(100, data.user.xp / selected.xpRequired * 100) : 100;
+  const verificationQuest = verifyingTask?.realmId === selected.id ? selected.quests[verifyingTask.regionIndex] : null;
+
+  function openTaskVerification(regionIndex: number) {
+    setVerifyingTask({ realmId: selected.id, regionIndex });
+    setCheckedCriteria([]);
+  }
+
+  function toggleCriterion(index: number) {
+    setCheckedCriteria((current) => current.includes(index) ? current.filter((item) => item !== index) : [...current, index]);
+  }
+
+  async function confirmRealmTask() {
+    if (!verifyingTask || !verificationQuest || checkedCriteria.length !== verificationQuest.criteria.length) return;
+    const completed = await act(
+      {
+        action: "completeRealmTask",
+        realmId: verifyingTask.realmId,
+        regionIndex: verifyingTask.regionIndex,
+        criteriaConfirmed: [...checkedCriteria].sort((left, right) => left - right),
+      },
+      `完成「${verificationQuest.name}」：+${selected.taskReward} EXP`,
+    );
+    if (completed) {
+      setVerifyingTask(null);
+      setCheckedCriteria([]);
+    }
+  }
 
   return <section className="atlas-panel">
     <div className="atlas-header">
@@ -390,7 +435,30 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
       </div>
       <aside className={`continent-detail detail-${selected.style} glass-card ${isUnlocked?"":"locked"}`}>
         <div className="detail-banner"><span>{isUnlocked ? selected.icon : "⌾"}</span><div><small>{selected.real} · 世界第 {continents.findIndex(c=>c.id===selected.id)+1} 境</small><h3>{selected.name}</h3><p>{selected.title}</p></div></div>
-        {isUnlocked ? <><p className="continent-story">{selected.story}</p><div className="realm-trait"><span>{selected.icon}</span><div><small>全站环境特性</small><b>{selected.trait}</b></div></div><div className="explore-progress"><div><span>大陆任务进度</span><b>{completedRegions}/{selected.quests.length}</b></div><i><em style={{width:`${completedRegions / selected.quests.length * 100}%`}} /></i></div><div className="region-list">{selected.quests.map((quest,index) => { const done = index < completedRegions; const available = index === completedRegions; return <button key={quest} className={done ? "region-done" : available ? "region-available" : "region-locked"} disabled={!available} onClick={() => void act({ action:"completeRealmTask", realmId:selected.id, regionIndex:index }, `完成「${quest}」：+${selected.taskReward} EXP`)}><span>{done ? "✓" : index+1}</span><div><b>{quest}</b><small>{done ? "任务完成 · EXP 已领取" : available ? `完成任务 · +${selected.taskReward} EXP` : "完成前置任务后开放"}</small></div><em>{done ? "已完成" : available ? "领取" : "⌾"}</em></button>; })}</div><div className={completedRegions >= selected.quests.length ? "continent-boss conquered" : "continent-boss"}><span>♢</span><div><small>{completedRegions >= selected.quests.length ? "大陆任务全部完成" : "大陆终局试炼"}</small><b>{selected.boss}</b></div><em>{completedRegions >= selected.quests.length ? `已获得 · ${selected.reward}` : `限定奖励 · ${selected.reward}`}</em></div><button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>{activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}{completedRegions >= selected.quests.length && unlocked.length < continents.length && <div className="route-choice-ready">✓ 已获得选择下一大陆的资格</div>}</> : <div className="locked-detail"><span>{isTarget ? "◎" : "⌾"}</span><h4>{isTarget ? "远征目标已选定" : "大陆边界尚未显现"}</h4><p><b>{selected.difficulty}</b>难度 · 需要累计 <b>{selected.xpRequired.toLocaleString()} EXP</b>{isTarget ? `，还差 ${remainingXp.toLocaleString()} EXP。` : " 才能解锁。"}</p><div><i style={{width:`${thresholdProgress}%`}} /></div>{canChooseTarget ? <button className={isTarget ? "choose-realm-target active" : "choose-realm-target"} disabled={isTarget} onClick={() => void act({ action:"chooseRealmTarget", realmId:selected.id }, `${selected.name}已设为下一远征目标`)}>{isTarget ? "当前远征目标" : target ? "改选为下一大陆" : "选择为下一大陆"}</button> : <small className="route-choice-blocked">先完成 {unfinished?.name ?? "当前大陆"} 的三项任务，才能自由选择。</small>}</div>}
+        {isUnlocked ? <>
+          <p className="continent-story">{selected.story}</p>
+          <div className="realm-trait"><span>{selected.icon}</span><div><small>全站环境特性</small><b>{selected.trait}</b></div></div>
+          <div className="explore-progress"><div><span>大陆任务进度 · 完成标准核验后计入</span><b>{completedRegions}/{selected.quests.length}</b></div><i><em style={{width:`${completedRegions / selected.quests.length * 100}%`}} /></i></div>
+          <div className="region-list">{selected.quests.map((quest,index) => {
+            const done = index < completedRegions;
+            const available = index === completedRegions;
+            return <button key={quest.name} className={done ? "region-done" : available ? "region-available" : "region-locked"} disabled={!available} onClick={() => openTaskVerification(index)}>
+              <span>{done ? "✓" : index+1}</span>
+              <div><b>{quest.name}</b><small>{done ? "标准已核验 · EXP 已领取" : available ? `核验 3 项完成标准 · +${selected.taskReward} EXP` : "完成前置任务后开放"}</small></div>
+              <em>{done ? "已完成" : available ? "核验" : "⌾"}</em>
+            </button>;
+          })}</div>
+          {verificationQuest && verifyingTask && <section className="realm-verification" role="dialog" aria-modal="true" aria-label={`${verificationQuest.name}完成标准`}>
+            <div className="verification-head"><div><small>{selected.name} · 第 {verifyingTask.regionIndex + 1} 项试炼</small><h4>确认「{verificationQuest.name}」完成标准</h4></div><button aria-label="关闭核验" onClick={() => setVerifyingTask(null)}>×</button></div>
+            <p>以下标准必须真实完成并逐项确认，全部通过后才会计入大陆进度。</p>
+            <div className="criteria-list">{verificationQuest.criteria.map((criterion,index) => <label key={criterion} className={checkedCriteria.includes(index) ? "checked" : ""}><input type="checkbox" checked={checkedCriteria.includes(index)} onChange={() => toggleCriterion(index)} /><span>{checkedCriteria.includes(index) ? "✓" : index + 1}</span><b>{criterion}</b></label>)}</div>
+            <div className="verification-actions"><button onClick={() => { setVerifyingTask(null); setCheckedCriteria([]); }}>暂不提交</button><button className="verify-submit" disabled={checkedCriteria.length !== verificationQuest.criteria.length} onClick={() => void confirmRealmTask()}>确认全部达成并领取</button></div>
+          </section>}
+          <div className={completedRegions >= selected.quests.length ? "continent-boss conquered" : "continent-boss"}><span>♢</span><div><small>{completedRegions >= selected.quests.length ? "大陆任务全部完成" : "大陆终局试炼"}</small><b>{selected.boss}</b></div><em>{completedRegions >= selected.quests.length ? `已获得 · ${selected.reward}` : `限定奖励 · ${selected.reward}`}</em></div>
+          <button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>
+          {activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}
+          {completedRegions >= selected.quests.length && unlocked.length < continents.length && <div className="route-choice-ready">✓ 已获得选择下一大陆的资格</div>}
+        </> : <div className="locked-detail"><span>{isTarget ? "◎" : "⌾"}</span><h4>{isTarget ? "远征目标已选定" : "大陆边界尚未显现"}</h4><p><b>{selected.difficulty}</b>难度 · 需要累计 <b>{selected.xpRequired.toLocaleString()} EXP</b>{isTarget ? `，还差 ${remainingXp.toLocaleString()} EXP。` : " 才能解锁。"}</p><div><i style={{width:`${thresholdProgress}%`}} /></div>{canChooseTarget ? <button className={isTarget ? "choose-realm-target active" : "choose-realm-target"} disabled={isTarget} onClick={() => void act({ action:"chooseRealmTarget", realmId:selected.id }, `${selected.name}已设为下一远征目标`)}>{isTarget ? "当前远征目标" : target ? "改选为下一大陆" : "选择为下一大陆"}</button> : <small className="route-choice-blocked">先完成 {unfinished?.name ?? "当前大陆"} 的三项任务，才能自由选择。</small>}</div>}
         <div className="world-milestone"><span>{unlocked.length}/7</span><p>已发现大陆<br/><small>继续完成任务以拓展世界地图</small></p></div>
       </aside>
     </div> : <div className="ranking glass-card atlas-ranking">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div>}

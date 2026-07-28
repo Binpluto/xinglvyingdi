@@ -57,6 +57,16 @@ test("supports secure calendar-to-task imports", async () => {
   assert.match(migration, /CREATE UNIQUE INDEX `quests_calendar_event_idx`/);
 });
 
+test("orders today's unfinished quests first and completed quests last", async () => {
+  const client = await readFile(new URL("app/GameClient.tsx", root), "utf8");
+
+  assert.match(client, /const sortQuests/);
+  assert.match(client, /questDateKey\(quest\) === today \? 0/);
+  assert.match(client, /quest\.done \? 3/);
+  assert.match(client, /const visible = sortQuests/);
+  assert.match(client, /const calendarAgenda = sortQuests/);
+});
+
 test("supports encrypted direct Google Calendar synchronization", async () => {
   const [client, helper, connectRoute, callbackRoute, gameRoute, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
@@ -128,6 +138,11 @@ test("persists branching continent progression", async () => {
   assert.match(client, /xpRequired:3300/);
   assert.match(client, /完成当前大陆的 3 项任务后/);
   assert.match(route, /completeRealmTask/);
+  assert.match(client, /确认全部达成并领取/);
+  assert.match(client, /完成标准必须真实完成并逐项确认|必须真实完成并逐项确认/);
+  assert.match(client, /criteriaConfirmed/);
+  assert.match(route, /criteriaConfirmed\.join\(","\) !== "0,1,2"/);
+  assert.match(route, /请逐项确认三条完成标准/);
   assert.match(route, /chooseRealmTarget/);
   assert.match(route, /INSERT OR IGNORE INTO realm_progress/);
   assert.match(schema, /realmProgress/);

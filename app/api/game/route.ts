@@ -335,6 +335,7 @@ export async function POST(request: Request) {
       rangeDays?: number;
       realmId?: string;
       regionIndex?: number;
+      criteriaConfirmed?: number[];
     };
     const db = env.DB;
 
@@ -342,6 +343,12 @@ export async function POST(request: Request) {
       const realmId = body.realmId ?? "";
       const rule = realmRules[realmId];
       if (!rule) return Response.json({ error: "大陆不存在" }, { status: 404 });
+      const criteriaConfirmed = Array.isArray(body.criteriaConfirmed)
+        ? [...new Set(body.criteriaConfirmed.map(Number))].sort((left, right) => left - right)
+        : [];
+      if (criteriaConfirmed.join(",") !== "0,1,2") {
+        return Response.json({ error: "请逐项确认三条完成标准后再提交大陆任务" }, { status: 400 });
+      }
       const progress = await db.prepare(`
         SELECT completed_regions, unlocked FROM realm_progress
         WHERE user_email = ? AND realm_id = ?
