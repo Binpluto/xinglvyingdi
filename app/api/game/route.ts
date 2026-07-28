@@ -27,14 +27,42 @@ const starterQuests = [
   ["风之小径", "户外散步 20 分钟", "日常", 25],
 ] as const;
 
-const realmRules: Record<string, { xpRequired: number; taskReward: number }> = {
-  dawn: { xpRequired: 0, taskReward: 30 },
-  crown: { xpRequired: 300, taskReward: 45 },
-  ember: { xpRequired: 650, taskReward: 55 },
-  storm: { xpRequired: 1100, taskReward: 70 },
-  verdant: { xpRequired: 1700, taskReward: 85 },
-  coral: { xpRequired: 2400, taskReward: 105 },
-  polar: { xpRequired: 3300, taskReward: 130 },
+type RealmRule = {
+  xpRequired: number;
+  taskReward: number;
+  completedQuests: number;
+  focusMinutes: number;
+  referrals: number;
+  teamMembers: number;
+  previousRealmId: string | null;
+};
+
+type JourneyMetrics = {
+  xp: number;
+  focus_minutes: number;
+  completed_quests: number;
+  referral_count: number;
+  team_members: number;
+};
+
+const realmOrder = ["dawn", "crown", "ember", "storm", "verdant", "coral", "polar"] as const;
+const realmNames: Record<string, string> = {
+  dawn: "曦华大陆",
+  crown: "苍冠大陆",
+  ember: "赤土大陆",
+  storm: "风暴大陆",
+  verdant: "森灵大陆",
+  coral: "珊海群岛",
+  polar: "极星大陆",
+};
+const realmRules: Record<string, RealmRule> = {
+  dawn: { xpRequired: 0, taskReward: 30, completedQuests: 0, focusMinutes: 0, referrals: 0, teamMembers: 0, previousRealmId: null },
+  crown: { xpRequired: 600, taskReward: 45, completedQuests: 8, focusMinutes: 120, referrals: 1, teamMembers: 0, previousRealmId: "dawn" },
+  ember: { xpRequired: 1500, taskReward: 55, completedQuests: 18, focusMinutes: 300, referrals: 2, teamMembers: 2, previousRealmId: "crown" },
+  storm: { xpRequired: 3000, taskReward: 70, completedQuests: 30, focusMinutes: 600, referrals: 3, teamMembers: 3, previousRealmId: "ember" },
+  verdant: { xpRequired: 5000, taskReward: 85, completedQuests: 45, focusMinutes: 1000, referrals: 5, teamMembers: 3, previousRealmId: "storm" },
+  coral: { xpRequired: 7500, taskReward: 105, completedQuests: 65, focusMinutes: 1500, referrals: 7, teamMembers: 4, previousRealmId: "verdant" },
+  polar: { xpRequired: 11000, taskReward: 130, completedQuests: 90, focusMinutes: 2400, referrals: 10, teamMembers: 5, previousRealmId: "coral" },
 };
 
 const calendarHosts = [
@@ -211,21 +239,77 @@ async function currentUser(request: Request) {
   return identity;
 }
 
+async function realmGateStatuses(email: string) {
+  const metrics = await env.DB.prepare(`
+    SELECT u.xp, u.focus_minutes,
+      (SELECT COUNT(*) FROM quests q WHERE q.user_email = u.email AND q.completed = 1) AS completed_quests,
+      (SELECT COUNT(*) FROM referrals r WHERE r.referrer_email = u.email) AS referral_count,
+      COALESCE((
+        SELECT COUNT(*) FROM team_members group_member
+        WHERE group_member.team_id = (
+          SELECT own_membership.team_id FROM team_members own_membership
+          WHERE own_membership.user_email = u.email LIMIT 1
+        )
+      ), 0) AS team_members
+    FROM users u WHERE u.email = ?
+  `).bind(email).first<JourneyMetrics>();
+  const progressRows = await env.DB.prepare(`
+    SELECT realm_id, completed_regions, unlocked
+    FROM realm_progress WHERE user_email = ?
+  `).bind(email).all<{ realm_id: string; completed_regions: number; unlocked: number }>();
+  const progress = new Map(progressRows.results.map((row) => [row.realm_id, row]));
+  const values = metrics ?? { xp: 0, focus_minutes: 0, completed_quests: 0, referral_count: 0, team_members: 0 };
+
+  return realmOrder.map((realmId, sequence) => {
+    const rule = realmRules[realmId];
+    const previous = rule.previousRealmId ? progress.get(rule.previousRealmId) : null;
+    const requirements = rule.previousRealmId ? [
+      {
+        key: "previousRealm",
+        label: `完成${realmNames[rule.previousRealmId]}三项试炼`,
+        current: previous?.unlocked ? Math.min(3, previous.completed_regions) : 0,
+        required: 3,
+        unit: "项",
+      },
+      { key: "xp", label: "累计冒险经验", current: values.xp, required: rule.xpRequired, unit: " EXP" },
+      { key: "quests", label: "完成系统任务", current: values.completed_quests, required: rule.completedQuests, unit: "项" },
+      { key: "focus", label: "累计专注修行", current: values.focus_minutes, required: rule.focusMinutes, unit: "分钟" },
+      { key: "referrals", label: "成功邀请好友", current: values.referral_count, required: rule.referrals, unit: "人" },
+      ...(rule.teamMembers ? [{ key: "team", label: "小组同行人数", current: values.team_members, required: rule.teamMembers, unit: "人" }] : []),
+    ].map((requirement) => ({ ...requirement, met: requirement.current >= requirement.required })) : [];
+    return {
+      realmId,
+      sequence,
+      unlocked: Boolean(progress.get(realmId)?.unlocked),
+      eligible: realmId === "dawn" || requirements.every((requirement) => requirement.met),
+      requirements,
+    };
+  });
+}
+
 async function syncRealmUnlock(email: string) {
-  const target = await env.DB.prepare(`
-    SELECT rp.realm_id, u.xp
-    FROM realm_progress rp JOIN users u ON u.email = rp.user_email
-    WHERE rp.user_email = ? AND rp.target = 1
-    LIMIT 1
-  `).bind(email).first<{ realm_id: string; xp: number }>();
-  if (!target) return;
-  const rule = realmRules[target.realm_id];
-  if (rule && target.xp >= rule.xpRequired) {
+  await env.DB.prepare(`
+    UPDATE realm_progress SET target = 0, updated_at = CURRENT_TIMESTAMP
+    WHERE user_email = ? AND target = 1
+  `).bind(email).run();
+
+  for (let attempt = 0; attempt < realmOrder.length - 1; attempt += 1) {
+    const gates = await realmGateStatuses(email);
+    const next = gates.find((gate) => gate.realmId !== "dawn" && !gate.unlocked);
+    if (!next) return;
+    await env.DB.prepare(`
+      INSERT INTO realm_progress (user_email, realm_id, completed_regions, unlocked, target)
+      VALUES (?, ?, 0, 0, 1)
+      ON CONFLICT(user_email, realm_id) DO UPDATE SET
+        target = 1,
+        updated_at = CURRENT_TIMESTAMP
+    `).bind(email, next.realmId).run();
+    if (!next.eligible) return;
     await env.DB.prepare(`
       UPDATE realm_progress
       SET unlocked = 1, target = 0, unlocked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE user_email = ? AND realm_id = ?
-    `).bind(email, target.realm_id).run();
+    `).bind(email, next.realmId).run();
   }
 }
 
@@ -275,6 +359,7 @@ async function dashboard(email: string) {
     FROM realm_progress WHERE user_email = ?
     ORDER BY unlocked DESC, updated_at
   `).bind(email).all();
+  const realmGates = await realmGateStatuses(email);
   const calendarConnection = await db.prepare(`
     SELECT google_email AS googleEmail, last_synced_at AS lastSyncedAt, connected_at AS connectedAt
     FROM google_calendar_connections WHERE user_email = ?
@@ -295,6 +380,7 @@ async function dashboard(email: string) {
     focusHistory: focusHistory.results,
     inventory: inventory.results,
     realmProgress: realmProgress.results,
+    realmGates,
     calendarConnection: calendarConnection
       ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
       : { connected: false, googleEmail: null, lastSyncedAt: null },
@@ -371,29 +457,7 @@ export async function POST(request: Request) {
           .bind(rule.taskReward, Math.ceil(rule.taskReward / 2), identity.email),
       ]);
     } else if (body.action === "chooseRealmTarget") {
-      const realmId = body.realmId ?? "";
-      const rule = realmRules[realmId];
-      if (!rule || realmId === "dawn") return Response.json({ error: "请选择曦华大陆以外的目标" }, { status: 400 });
-      const existing = await db.prepare(`
-        SELECT unlocked FROM realm_progress WHERE user_email = ? AND realm_id = ?
-      `).bind(identity.email, realmId).first<{ unlocked: number }>();
-      if (existing?.unlocked) return Response.json({ error: "该大陆已经解锁" }, { status: 400 });
-      const unfinished = await db.prepare(`
-        SELECT realm_id FROM realm_progress
-        WHERE user_email = ? AND unlocked = 1 AND completed_regions < 3
-        LIMIT 1
-      `).bind(identity.email).first<{ realm_id: string }>();
-      if (unfinished) return Response.json({ error: "请先完成当前已解锁大陆的三项任务" }, { status: 400 });
-      await db.batch([
-        db.prepare("UPDATE realm_progress SET target = 0, updated_at = CURRENT_TIMESTAMP WHERE user_email = ?")
-          .bind(identity.email),
-        db.prepare(`
-          INSERT INTO realm_progress (user_email, realm_id, completed_regions, unlocked, target)
-          VALUES (?, ?, 0, 0, 1)
-          ON CONFLICT(user_email, realm_id) DO UPDATE SET target = 1, updated_at = CURRENT_TIMESTAMP
-        `).bind(identity.email, realmId),
-      ]);
-      await syncRealmUnlock(identity.email);
+      return Response.json({ error: "大陆按照固定远征顺序解锁，请完成当前系统门槛" }, { status: 400 });
     } else if (body.action === "completeQuest") {
       const quest = await db.prepare(
         "SELECT reward, completed FROM quests WHERE id = ? AND user_email = ?",

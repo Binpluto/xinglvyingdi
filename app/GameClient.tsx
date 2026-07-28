@@ -9,6 +9,8 @@ type RankTeam = { id: number; name: string; code: string; members: number; stren
 type FocusRecord = { id: number; minutes: number; created_at: string };
 type InventoryItem = { item_key: string; quantity: number; acquired_at: string };
 type RealmProgress = { realmId: string; completedRegions: number; unlocked: number; target: number; unlockedAt: string | null };
+type RealmGateRequirement = { key: string; label: string; current: number; required: number; unit: string; met: boolean };
+type RealmGate = { realmId: string; sequence: number; unlocked: boolean; eligible: boolean; requirements: RealmGateRequirement[] };
 type CalendarConnection = { connected: boolean; googleEmail: string | null; lastSyncedAt: string | null };
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
@@ -16,6 +18,7 @@ type GameData = {
   focusHistory: FocusRecord[];
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
+  realmGates: RealmGate[];
   calendarConnection: CalendarConnection;
   team: Team | null;
   leaderboard: RankTeam[];
@@ -49,6 +52,16 @@ const continents: Realm[] = [
   { id:"coral", name:"珊海群岛", real:"大洋洲", xpRequired:2400, difficulty:"艰深", taskReward:105, icon:"≈", style:"coral", title:"海风与平衡之地", story:"星罗岛屿守护生活的平衡，探索协作、休息与自在创造。", quests:[{name:"珊瑚学宫",criteria:["完成一次跨领域学习","把新知识用于一个现实问题","记录应用结果"]},{name:"月湾营地",criteria:["安排并完成一次高质量休息","休息期间停止工作信息输入","记录恢复前后的精力变化"]},{name:"群岛协作",criteria:["与至少一位伙伴明确分工","共同完成一个可查看成果","完成一次协作复盘"]}], boss:"失衡海兽", reward:"潮汐贝冠", hero:["跟随温柔潮汐","找回生活的平衡"], campStory:"珊瑚海湾与月光潮汐舒展身心，适合休息、协作与自由创造。", trait:"平衡 · 协作 · 松弛" },
   { id:"polar", name:"极星大陆", real:"南极洲", xpRequired:3300, difficulty:"传说", taskReward:130, icon:"✦", style:"polar", title:"冰原与终章之地", story:"世界尽头的纯净冰原，只向真正理解自己的旅行者开放。", quests:[{name:"寂静冰原",criteria:["完成一次 60 分钟深度独处","关闭非必要信息与通知","记录最重要的三个发现"]},{name:"极光神殿",criteria:["回顾一个长期目标的真实动机","删除或调整一个不再适合的目标","写下新的行动承诺"]},{name:"世界之心",criteria:["完成整段旅程的系统复盘","总结最重要的成长证据","制定下一阶段人生蓝图"]}], boss:"旧日的自己", reward:"极星之证", hero:["在极光之下","看见真正的自己"], campStory:"冰晶与极光洗去噪音，适合深度反思、长期愿景与自我超越。", trait:"纯粹 · 反思 · 自我超越" },
 ];
+const advancedRealmMeta: Record<string, Pick<Realm, "xpRequired" | "difficulty">> = {
+  dawn: { xpRequired: 0, difficulty: "启程" },
+  crown: { xpRequired: 600, difficulty: "旅者" },
+  ember: { xpRequired: 1500, difficulty: "历练" },
+  storm: { xpRequired: 3000, difficulty: "精英" },
+  verdant: { xpRequired: 5000, difficulty: "大师" },
+  coral: { xpRequired: 7500, difficulty: "史诗" },
+  polar: { xpRequired: 11000, difficulty: "传说" },
+};
+continents.forEach((continent) => Object.assign(continent, advancedRealmMeta[continent.id]));
 
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 const XP_PER_LEVEL = 100;
@@ -197,7 +210,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
                 <p>从 Lv.1、0 EXP 开始，每累计 100 EXP 提升 1 级。</p>
                 <ul><li><span>完成任务</span><b>+25～80 EXP</b></li><li><span>专注修行</span><b>每分钟 +2 EXP</b></li><li><span>邀请好友</span><b>双方 +100 / +200 EXP</b></li></ul>
                 <div className="continent-level-rules"><b>大陆解锁门槛</b>{continents.map((realm) => <span key={realm.id}><i>{realm.icon}</i>{realm.name}<em>{realm.id === "dawn" ? "默认解锁" : `${realm.xpRequired} EXP · ${realm.difficulty}`}</em></span>)}</div>
-                <small className="level-world-note">曦华大陆默认开放。完成当前大陆的 3 项任务后，可自由选择下一大陆；累计 EXP 达到该大陆门槛时正式解锁。</small>
+                <small className="level-world-note">曦华大陆默认开放。其余大陆按固定顺序解锁，必须同时完成前一大陆试炼，并达到经验、系统任务、专注、邀请好友和小组人数门槛。</small>
               </aside>}
             </div>
           </div>
@@ -368,21 +381,22 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
 function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; activeRealmId: string | null; onEnter: (realm: Realm) => void; onLeave: () => void }) {
   const level = levelFromXp(data.user.xp);
   const progressFor = (realmId: string) => data.realmProgress.find((item) => item.realmId === realmId);
+  const gateFor = (realmId: string) => data.realmGates.find((item) => item.realmId === realmId);
   const unlocked = continents.filter((continent) => Boolean(progressFor(continent.id)?.unlocked));
-  const target = continents.find((continent) => progressFor(continent.id)?.target);
-  const unfinished = unlocked.find((continent) => (progressFor(continent.id)?.completedRegions ?? 0) < continent.quests.length);
-  const canChooseTarget = !unfinished;
+  const nextGate = data.realmGates.find((gate) => gate.realmId !== "dawn" && !gate.unlocked);
+  const target = continents.find((continent) => continent.id === nextGate?.realmId);
   const [view, setView] = useState<"map"|"ranking">("map");
   const [selectedId, setSelectedId] = useState(target?.id ?? unlocked.at(-1)?.id ?? "dawn");
   const [verifyingTask, setVerifyingTask] = useState<{ realmId: string; regionIndex: number } | null>(null);
   const [checkedCriteria, setCheckedCriteria] = useState<number[]>([]);
   const selected = continents.find(c => c.id === selectedId) ?? continents[0];
   const selectedProgress = progressFor(selected.id);
+  const selectedGate = gateFor(selected.id);
   const isUnlocked = Boolean(selectedProgress?.unlocked);
-  const isTarget = Boolean(selectedProgress?.target);
+  const isTarget = nextGate?.realmId === selected.id;
   const completedRegions = selectedProgress?.completedRegions ?? 0;
-  const remainingXp = Math.max(0, selected.xpRequired - data.user.xp);
-  const thresholdProgress = selected.xpRequired ? Math.min(100, data.user.xp / selected.xpRequired * 100) : 100;
+  const gateCompleted = selectedGate?.requirements.filter((requirement) => requirement.met).length ?? 0;
+  const gateTotal = selectedGate?.requirements.length ?? 0;
   const verificationQuest = verifyingTask?.realmId === selected.id ? selected.quests[verifyingTask.regionIndex] : null;
 
   function openTaskVerification(regionIndex: number) {
@@ -413,8 +427,8 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
 
   return <section className="atlas-panel">
     <div className="atlas-header">
-      <div><span className="chapter">星旅世界 · 自由远征</span><h2>选择你的下一片大陆</h2><p>曦华大陆默认开放。完成已解锁大陆的三项任务后，可自由选择新的远征目标，再以累计 EXP 点亮边界。</p></div>
-      <div className="atlas-level"><span>Lv.{level} · {data.user.xp.toLocaleString()} EXP</span><strong>{target ? target.name : unfinished ? `完成${unfinished.name}` : "选择新目标"}</strong><small>{target ? `解锁门槛 ${target.xpRequired.toLocaleString()} EXP` : unlocked.length === continents.length ? "七境全部开放" : "远征路线由你决定"}</small></div>
+      <div><span className="chapter">星旅世界 · 序列远征</span><h2>逐境完成高阶解锁门槛</h2><p>大陆按固定航线依次开放。除了累计 EXP，还要完成系统任务、专注修行、邀请好友、小组同行和前一大陆试炼。</p></div>
+      <div className="atlas-level"><span>Lv.{level} · {data.user.xp.toLocaleString()} EXP</span><strong>{target ? target.name : "七境完成"}</strong><small>{target ? `当前已达成 ${nextGate?.requirements.filter((requirement) => requirement.met).length ?? 0}/${nextGate?.requirements.length ?? 0} 项门槛` : "全部大陆均已解锁"}</small></div>
     </div>
     <div className="atlas-tabs"><button className={view==="map"?"active":""} onClick={()=>setView("map")}>◎ 世界地图</button><button className={view==="ranking"?"active":""} onClick={()=>setView("ranking")}>♙ 小组排行</button></div>
     {view === "map" ? <div className="atlas-content">
@@ -424,11 +438,14 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
         {continents.map((continent,index) => {
           const realmProgress = progressFor(continent.id);
           const open = Boolean(realmProgress?.unlocked);
-          const aiming = Boolean(realmProgress?.target);
+          const realmGate = gateFor(continent.id);
+          const aiming = nextGate?.realmId === continent.id;
+          const metRequirements = realmGate?.requirements.filter((requirement) => requirement.met).length ?? 0;
+          const totalRequirements = realmGate?.requirements.length ?? 0;
           return <button key={continent.id} className={`continent continent-${continent.id} land-${continent.style} ${selectedId===continent.id?"selected":""} ${open?"unlocked":"locked"} ${aiming?"targeted":""}`} onClick={()=>setSelectedId(continent.id)}>
             <span className="land-shape" aria-hidden="true"><span className="terrain terrain-one" /><span className="terrain terrain-two" /><span className="terrain terrain-three" /><i>{open ? continent.icon : "⌾"}</i></span>
-            <b>{continent.name}</b><span className="land-identity">{continent.real} · {continent.trait}</span><small>{continent.id === "dawn" ? "初始大陆 · 默认解锁" : `${continent.xpRequired.toLocaleString()} EXP · ${continent.difficulty}`}</small>
-            {aiming ? <em>当前目标</em> : !open && <em>未解锁</em>}<u>{index+1}</u>
+            <b>{continent.name}</b><span className="land-identity">{continent.real} · {continent.trait}</span><small>{continent.id === "dawn" ? "初始大陆 · 默认解锁" : `${metRequirements}/${totalRequirements} 门槛 · ${continent.difficulty}`}</small>
+            {aiming ? <em>下一远征</em> : !open && <em>序列锁定</em>}<u>{index+1}</u>
           </button>;
         })}
         <div className="continent continent-mystery expanding" role="status" aria-label="神秘大陆，拓展中">
@@ -461,8 +478,19 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
           <div className={completedRegions >= selected.quests.length ? "continent-boss conquered" : "continent-boss"}><span>♢</span><div><small>{completedRegions >= selected.quests.length ? "大陆任务全部完成" : "大陆终局试炼"}</small><b>{selected.boss}</b></div><em>{completedRegions >= selected.quests.length ? `已获得 · ${selected.reward}` : `限定奖励 · ${selected.reward}`}</em></div>
           <button className={activeRealmId === selected.id ? "enter-continent active" : "enter-continent"} onClick={() => onEnter(selected)}>{activeRealmId === selected.id ? `已驻扎 · 返回${selected.name}营地` : `进入 ${selected.name}`}</button>
           {activeRealmId === selected.id && <button className="leave-continent" onClick={onLeave}>离开大陆，返回星旅主世界</button>}
-          {completedRegions >= selected.quests.length && unlocked.length < continents.length && <div className="route-choice-ready">✓ 已获得选择下一大陆的资格</div>}
-        </> : <div className="locked-detail"><span>{isTarget ? "◎" : "⌾"}</span><h4>{isTarget ? "远征目标已选定" : "大陆边界尚未显现"}</h4><p><b>{selected.difficulty}</b>难度 · 需要累计 <b>{selected.xpRequired.toLocaleString()} EXP</b>{isTarget ? `，还差 ${remainingXp.toLocaleString()} EXP。` : " 才能解锁。"}</p><div><i style={{width:`${thresholdProgress}%`}} /></div>{canChooseTarget ? <button className={isTarget ? "choose-realm-target active" : "choose-realm-target"} disabled={isTarget} onClick={() => void act({ action:"chooseRealmTarget", realmId:selected.id }, `${selected.name}已设为下一远征目标`)}>{isTarget ? "当前远征目标" : target ? "改选为下一大陆" : "选择为下一大陆"}</button> : <small className="route-choice-blocked">先完成 {unfinished?.name ?? "当前大陆"} 的三项任务，才能自由选择。</small>}</div>}
+          {completedRegions >= selected.quests.length && unlocked.length < continents.length && <div className="route-choice-ready">✓ 当前大陆试炼已完成，继续达成下一境系统门槛</div>}
+        </> : <div className="locked-detail realm-gate-detail">
+          <span>{isTarget ? "◎" : "⌾"}</span>
+          <h4>{isTarget ? `下一远征 · ${selected.name}` : `序列未抵达 · ${selected.name}`}</h4>
+          <p><b>{selected.difficulty}</b>级远征，需要同时完成以下 {gateTotal} 项系统门槛；仅有 EXP 达标不会解锁。</p>
+          <div className="realm-gate-summary"><i style={{width:`${gateTotal ? gateCompleted / gateTotal * 100 : 0}%`}} /></div>
+          <strong className="gate-count">{gateCompleted}/{gateTotal} 项已达成</strong>
+          <div className="realm-gate-list">{selectedGate?.requirements.map((requirement) => {
+            const progress = Math.min(100, requirement.current / Math.max(1, requirement.required) * 100);
+            return <article key={requirement.key} className={requirement.met ? "met" : ""}><span>{requirement.met ? "✓" : "◇"}</span><div><b>{requirement.label}</b><small>{requirement.current.toLocaleString()}/{requirement.required.toLocaleString()}{requirement.unit}</small><i><em style={{width:`${progress}%`}} /></i></div></article>;
+          })}</div>
+          <small className="route-choice-blocked">{isTarget ? "所有门槛完成后系统会自动解锁，无需手动申请。" : `请先完成${target?.name ?? "前方大陆"}的远征门槛，世界航线不可跳过。`}</small>
+        </div>}
         <div className="world-milestone"><span>{unlocked.length}/7</span><p>已发现大陆<br/><small>继续完成任务以拓展世界地图</small></p></div>
       </aside>
     </div> : <div className="ranking glass-card atlas-ranking">{data.leaderboard.length ? data.leaderboard.map((team, i) => <article key={team.id} className={data.team?.id === team.id ? "my-team" : ""}><div className={`rank-number rank-${i + 1}`}>{i + 1}</div><div className="rank-crest">{i < 3 ? "✦" : "◇"}</div><div className="rank-name"><b>{team.name}</b><span>{team.members}/5 位旅行者 · 累计专注 {team.focus_minutes} 分钟</span></div><div className="rank-power"><strong>{Number(team.strength).toLocaleString()}</strong><span>世界实力</span></div></article>) : <div className="empty-ranking"><span>◎</span><h3>世界正在等待第一支队伍</h3><p>创建小组并完成任务，你们将成为榜单上的第一束星光。</p></div>}</div>}

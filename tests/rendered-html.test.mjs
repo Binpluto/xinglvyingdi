@@ -135,7 +135,7 @@ test("renders every continent with a unique silhouette, scale and terrain identi
   assert.match(css, /@media\(max-width:720px\)\{\.world-map\{min-height:780px\}/);
 });
 
-test("persists branching continent progression", async () => {
+test("enforces sequential high-difficulty continent promotion gates", async () => {
   const [client, route, schema, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
@@ -144,16 +144,23 @@ test("persists branching continent progression", async () => {
   ]);
 
   assert.match(client, /初始大陆 · 默认解锁/);
-  assert.match(client, /选择为下一大陆/);
-  assert.match(client, /xpRequired:3300/);
-  assert.match(client, /完成当前大陆的 3 项任务后/);
+  assert.doesNotMatch(client, /选择为下一大陆/);
+  assert.match(client, /xpRequired: 11000/);
+  assert.match(client, /逐境完成高阶解锁门槛/);
+  assert.match(client, /仅有 EXP 达标不会解锁/);
+  assert.match(client, /realmGates/);
   assert.match(route, /completeRealmTask/);
   assert.match(client, /确认全部达成并领取/);
   assert.match(client, /完成标准必须真实完成并逐项确认|必须真实完成并逐项确认/);
   assert.match(client, /criteriaConfirmed/);
   assert.match(route, /criteriaConfirmed\.join\(","\) !== "0,1,2"/);
   assert.match(route, /请逐项确认三条完成标准/);
-  assert.match(route, /chooseRealmTarget/);
+  assert.match(route, /const realmOrder = \["dawn", "crown", "ember", "storm", "verdant", "coral", "polar"\]/);
+  assert.match(route, /completedQuests: 90/);
+  assert.match(route, /referrals: 10/);
+  assert.match(route, /teamMembers: 5/);
+  assert.match(route, /成功邀请好友/);
+  assert.match(route, /大陆按照固定远征顺序解锁/);
   assert.match(route, /INSERT OR IGNORE INTO realm_progress/);
   assert.match(schema, /realmProgress/);
   assert.match(migration, /CREATE TABLE `realm_progress`/);
