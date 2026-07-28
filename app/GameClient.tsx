@@ -431,7 +431,11 @@ function World({ data, act, activeRealmId, onEnter, onLeave }: { data: GameData;
             {aiming ? <em>当前目标</em> : !open && <em>未解锁</em>}<u>{index+1}</u>
           </button>;
         })}
-        <div className="sea-route route-a" /><div className="sea-route route-b" /><div className="sea-route route-c" />
+        <div className="continent continent-mystery expanding" role="status" aria-label="神秘大陆，拓展中">
+          <span className="land-shape" aria-hidden="true"><span className="terrain terrain-one" /><span className="terrain terrain-two" /><span className="terrain terrain-three" /><i>?</i></span>
+          <b>神秘大陆</b><span className="land-identity">未知领域 · 星雾封锁</span><small>世界边界之外</small><em>拓展中</em>
+        </div>
+        <div className="sea-route route-a" /><div className="sea-route route-b" /><div className="sea-route route-c" /><div className="sea-route route-mystery" />
       </div>
       <aside className={`continent-detail detail-${selected.style} glass-card ${isUnlocked?"":"locked"}`}>
         <div className="detail-banner"><span>{isUnlocked ? selected.icon : "⌾"}</span><div><small>{selected.real} · 世界第 {continents.findIndex(c=>c.id===selected.id)+1} 境</small><h3>{selected.name}</h3><p>{selected.title}</p></div></div>

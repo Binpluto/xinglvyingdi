@@ -123,6 +123,11 @@ test("renders every continent with a unique silhouette, scale and terrain identi
   assert.match(css, /\.continent-coral \.land-shape::before/);
   assert.match(css, /\.continent-storm \.terrain-two/);
   assert.match(css, /\.continent-polar \.terrain-three/);
+  assert.match(client, /神秘大陆/);
+  assert.match(client, /未知领域 · 星雾封锁/);
+  assert.match(client, /拓展中/);
+  assert.match(css, /\.continent-mystery\{--land-width:/);
+  assert.match(css, /@keyframes mystery-drift/);
 });
 
 test("persists branching continent progression", async () => {
