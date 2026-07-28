@@ -128,6 +128,11 @@ test("renders every continent with a unique silhouette, scale and terrain identi
   assert.match(client, /拓展中/);
   assert.match(css, /\.continent-mystery\{--land-width:/);
   assert.match(css, /@keyframes mystery-drift/);
+  assert.match(css, /Harmonized geographic atlas composition/);
+  assert.match(css, /\.continent-storm\{left:1%;top:25%\}/);
+  assert.match(css, /\.continent-dawn\{right:1%;top:26%\}/);
+  assert.match(css, /\.continent-polar\{left:33%;bottom:2%\}/);
+  assert.match(css, /@media\(max-width:720px\)\{\.world-map\{min-height:780px\}/);
 });
 
 test("persists branching continent progression", async () => {
