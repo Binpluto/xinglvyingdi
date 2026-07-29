@@ -189,3 +189,25 @@ test("allows every daily quest to be edited and deleted securely", async () => {
   assert.match(route, /DELETE FROM quests WHERE id = \? AND user_email = \?/);
   assert.match(route, /WHERE id = \? AND user_email = \?/);
 });
+
+test("offers focus completion alerts and three generated white-noise scenes", async () => {
+  const [client, css] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /new AudioContext\(\)/);
+  assert.match(client, /createAmbientSession/);
+  assert.match(client, /星雨/);
+  assert.match(client, /篝火/);
+  assert.match(client, /潮汐/);
+  assert.match(client, /弹窗 \+ 提示音/);
+  assert.match(client, /仅弹窗/);
+  assert.match(client, /仅提示音/);
+  assert.match(client, /静默结束/);
+  assert.match(client, /starcamp-focus-alert/);
+  assert.match(client, /starcamp-focus-ambient/);
+  assert.match(client, /focus-complete-dialog/);
+  assert.match(css, /\.ambient-options/);
+  assert.match(css, /\.focus-complete-backdrop/);
+});

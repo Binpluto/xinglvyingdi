@@ -170,3 +170,41 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 @media(max-width:1000px){.realm-status{display:none}}
 
 .continent.targeted .land-shape{outline:0}
+
+/* Focus soundscapes and completion ritual */
+.focus-control-deck{width:min(760px,100%);display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:28px;text-align:left}
+.ambient-picker,.alert-picker{padding:14px;border:1px solid rgba(71,119,127,.14);border-radius:16px;background:rgba(241,247,244,.68)}
+.focus-setting-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.focus-setting-heading small,.focus-setting-heading b{display:block;font-family:"PingFang SC",sans-serif}
+.focus-setting-heading small{font-size:8px;letter-spacing:.12em;color:#aa8440}
+.focus-setting-heading b{margin-top:3px;font-size:10px;color:#345e69}
+.focus-setting-heading>button{border:0;border-radius:12px;padding:5px 9px;background:rgba(214,228,224,.7);color:#6f868d;font:8px "PingFang SC",sans-serif;cursor:pointer}
+.focus-setting-heading>button.active{background:#285f6f;color:#fff}
+.focus-setting-heading>span{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#dcebe6;color:#2f7983}
+.ambient-options{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.ambient-options>button{min-width:0;display:grid;grid-template-columns:28px 1fr;align-items:center;gap:7px;padding:8px;border:1px solid rgba(77,122,126,.13);border-radius:11px;background:rgba(255,255,255,.6);text-align:left;cursor:pointer;transition:.2s}
+.ambient-options>button:hover,.ambient-options>button.active{transform:translateY(-1px);border-color:#60a29d;background:rgba(237,248,243,.96);box-shadow:0 6px 16px rgba(43,94,102,.08)}
+.ambient-options>button>span{grid-row:1/3;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#dcece7;color:#327b82;font-size:14px}
+.ambient-options b,.ambient-options small,.ambient-options em{display:block}
+.ambient-options b{font:600 9px "PingFang SC",sans-serif;color:#345b65}
+.ambient-options small{font:7px "PingFang SC",sans-serif;color:#8a9b9f}
+.ambient-options em{grid-column:1/3;margin-top:3px;font:normal 7px "PingFang SC",sans-serif;color:#b18842;text-align:center}
+.alert-options{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.alert-options>button{display:flex;align-items:center;gap:6px;padding:8px;border:1px solid rgba(77,122,126,.13);border-radius:9px;background:rgba(255,255,255,.58);color:#70868d;font:8px "PingFang SC",sans-serif;cursor:pointer}
+.alert-options>button>span{font-size:12px;color:#b28b44}
+.alert-options>button.active{border-color:#55958f;background:#2a6f78;color:#fff;box-shadow:0 5px 12px rgba(33,92,102,.13)}
+.alert-options>button.active>span{color:#f1d58f}
+.alert-picker>p{margin:9px 0 0;color:#8a999e;font:7px/1.5 "PingFang SC",sans-serif}
+.focus-complete-backdrop{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:22px;background:rgba(8,34,54,.52);backdrop-filter:blur(12px)}
+.focus-complete-dialog{position:relative;width:min(430px,100%);padding:38px 34px 32px;border:1px solid rgba(239,209,133,.6);border-radius:8px 34px 8px 34px;background:linear-gradient(145deg,#f8fbf4,#e5f0ea);box-shadow:0 30px 80px rgba(7,36,55,.35);text-align:center}
+.focus-complete-close{position:absolute;right:16px;top:13px;border:0;background:transparent;color:#71868d;font-size:22px;cursor:pointer}
+.focus-complete-seal{width:66px;height:66px;margin:0 auto 14px;border:1px solid #d7b463;border-radius:50%;display:grid;place-items:center;background:#174f67;color:#efd58f;font-size:26px;box-shadow:0 0 0 9px rgba(215,180,99,.1),0 12px 28px rgba(30,83,97,.18)}
+.focus-complete-dialog>small{font:8px "PingFang SC",sans-serif;letter-spacing:.22em;color:#aa8138}
+.focus-complete-dialog h2{margin:9px 0;font-size:26px;font-weight:500;color:#265664}
+.focus-complete-dialog p{margin:0 auto 24px;max-width:320px;font:11px/1.8 "PingFang SC",sans-serif;color:#758b92}
+.focus-complete-dialog>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.focus-complete-dialog>div>button{border:1px solid rgba(55,111,117,.16);border-radius:10px;padding:11px;background:rgba(255,255,255,.7);color:#52717a;font:10px "PingFang SC",sans-serif;cursor:pointer}
+.focus-complete-dialog>div>.focus-again{border-color:transparent;background:linear-gradient(110deg,#e1bd6d,#f0d798);color:#244d5e}
+.app-shell[class*="realm-"] .ambient-options>button.active,.app-shell[class*="realm-"] .alert-options>button.active{border-color:var(--realm-primary);background:var(--realm-primary)}
+@media(max-width:850px){.focus-control-deck{grid-template-columns:1fr}.ambient-options{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:520px){.focus-control-deck{margin-top:20px}.ambient-options{grid-template-columns:1fr}.ambient-options>button{grid-template-columns:28px 1fr auto}.ambient-options>button>em{grid-column:3;grid-row:1/3}.focus-complete-dialog{padding:34px 22px 26px}}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
@@ -96,6 +96,82 @@ const sortQuests = (quests: Quest[]) => {
   );
 };
 
+type FocusAlertMode = "both" | "popup" | "sound" | "silent";
+type AmbientSound = "rain" | "fire" | "ocean" | "none";
+type AmbientSession = {
+  context: AudioContext;
+  source: AudioBufferSourceNode;
+  lfo?: OscillatorNode;
+};
+
+function createAmbientSession(kind: Exclude<AmbientSound, "none">): AmbientSession {
+  const context = new AudioContext();
+  const seconds = 4;
+  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
+  const samples = buffer.getChannelData(0);
+  let smoothed = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const white = Math.random() * 2 - 1;
+    if (kind === "rain") samples[index] = white * .7;
+    else if (kind === "fire") {
+      smoothed = (smoothed + .025 * white) / 1.025;
+      samples[index] = smoothed * 3.2;
+    } else {
+      smoothed = smoothed * .985 + white * .015;
+      samples[index] = smoothed * 2.4;
+    }
+  }
+
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const master = context.createGain();
+  source.buffer = buffer;
+  source.loop = true;
+  filter.type = kind === "rain" ? "bandpass" : "lowpass";
+  filter.frequency.value = kind === "rain" ? 2600 : kind === "fire" ? 850 : 680;
+  filter.Q.value = kind === "rain" ? .7 : .35;
+  master.gain.value = kind === "fire" ? .16 : .12;
+  source.connect(filter).connect(master).connect(context.destination);
+
+  let lfo: OscillatorNode | undefined;
+  if (kind === "ocean") {
+    lfo = context.createOscillator();
+    const swell = context.createGain();
+    lfo.frequency.value = .09;
+    swell.gain.value = .065;
+    lfo.connect(swell).connect(master.gain);
+    lfo.start();
+  }
+  source.start();
+  void context.resume();
+  return { context, source, lfo };
+}
+
+function stopAmbientSession(session: AmbientSession | null) {
+  if (!session) return;
+  try { session.source.stop(); } catch {}
+  try { session.lfo?.stop(); } catch {}
+  void session.context.close();
+}
+
+function playFocusChime(context: AudioContext) {
+  void context.resume();
+  const start = context.currentTime;
+  [659.25, 783.99, 987.77].forEach((frequency, index) => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const noteStart = start + index * .18;
+    oscillator.type = "sine";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(.0001, noteStart);
+    gain.gain.exponentialRampToValueAtTime(.19, noteStart + .025);
+    gain.gain.exponentialRampToValueAtTime(.0001, noteStart + .48);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(noteStart);
+    oscillator.stop(noteStart + .5);
+  });
+}
+
 export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState("营地");
@@ -106,21 +182,55 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const [teamInput, setTeamInput] = useState("");
   const [teamName, setTeamName] = useState("");
   const [focusMinutes, setFocusMinutes] = useState(25);
+  const [focusAlertMode, setFocusAlertMode] = useState<FocusAlertMode>("both");
+  const [ambientSound, setAmbientSound] = useState<AmbientSound>("rain");
+  const [showFocusComplete, setShowFocusComplete] = useState(false);
   const [activeRealmId, setActiveRealmId] = useState<string | null>(null);
   const [showLevelGuide, setShowLevelGuide] = useState(false);
+  const alertAudioRef = useRef<AudioContext | null>(null);
+  const ambientAudioRef = useRef<AmbientSession | null>(null);
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const savedAlert = window.localStorage.getItem("starcamp-focus-alert");
+    const savedAmbient = window.localStorage.getItem("starcamp-focus-ambient");
+    if (savedAlert === "both" || savedAlert === "popup" || savedAlert === "sound" || savedAlert === "silent") setFocusAlertMode(savedAlert);
+    if (savedAmbient === "rain" || savedAmbient === "fire" || savedAmbient === "ocean" || savedAmbient === "none") setAmbientSound(savedAmbient);
+    return () => {
+      stopAmbientSession(ambientAudioRef.current);
+      if (alertAudioRef.current?.state !== "closed") void alertAudioRef.current?.close();
+    };
+  }, []);
   useEffect(() => {
     if (!running || timer <= 0) return;
     const id = window.setInterval(() => setTimer((v) => v - 1), 1000);
     return () => window.clearInterval(id);
   }, [running, timer]);
   useEffect(() => {
+    stopAmbientSession(ambientAudioRef.current);
+    ambientAudioRef.current = null;
+    if (!running || ambientSound === "none") return;
+    try {
+      ambientAudioRef.current = createAmbientSession(ambientSound);
+    } catch {
+      notify("浏览器暂时无法播放环境音，请检查声音权限");
+    }
+    return () => {
+      stopAmbientSession(ambientAudioRef.current);
+      ambientAudioRef.current = null;
+    };
+  }, [running, ambientSound]);
+  useEffect(() => {
     if (timer === 0 && running) {
       setRunning(false);
+      if (focusAlertMode === "sound" || focusAlertMode === "both") {
+        const context = alertAudioRef.current;
+        if (context && context.state !== "closed") playFocusChime(context);
+      }
+      if (focusAlertMode === "popup" || focusAlertMode === "both") setShowFocusComplete(true);
       void act({ action: "focus", minutes: focusMinutes }, "秘境完成：专注记录已保存到云端");
     }
-  }, [timer, running]);
+  }, [timer, running, focusAlertMode, focusMinutes]);
   useEffect(() => {
     if (!data) return;
     const saved = window.localStorage.getItem("starcamp-active-realm");
@@ -183,6 +293,26 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     notify(message);
   }
 
+  function toggleFocusTimer() {
+    if (!running) {
+      if (!alertAudioRef.current || alertAudioRef.current.state === "closed") {
+        alertAudioRef.current = new AudioContext();
+      }
+      void alertAudioRef.current.resume();
+    }
+    setRunning(!running);
+  }
+
+  function changeFocusAlert(mode: FocusAlertMode) {
+    setFocusAlertMode(mode);
+    window.localStorage.setItem("starcamp-focus-alert", mode);
+  }
+
+  function changeAmbientSound(sound: AmbientSound) {
+    setAmbientSound(sound);
+    window.localStorage.setItem("starcamp-focus-ambient", sound);
+  }
+
   const time = useMemo(() => `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(timer % 60).padStart(2, "0")}`, [timer]);
   const done = data?.quests.filter((q) => Boolean(q.done)).length ?? 0;
   const displayName = data?.user.name || identity.name.split("@")[0];
@@ -231,7 +361,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
 
         {tab === "营地" && <Camp data={data} done={done} setTab={setTab} act={act} realm={activeRealm} />}
         {tab === "任务" && <QuestBoard data={data} done={done} act={act} />}
-        {tab === "专注" && <Focus data={data} timer={time} running={running} setRunning={setRunning} setTimer={setTimer} focusMinutes={focusMinutes} setFocusMinutes={setFocusMinutes} act={act} />}
+        {tab === "专注" && <Focus data={data} timer={time} running={running} setRunning={setRunning} toggleRunning={toggleFocusTimer} setTimer={setTimer} focusMinutes={focusMinutes} setFocusMinutes={setFocusMinutes} alertMode={focusAlertMode} setAlertMode={changeFocusAlert} ambientSound={ambientSound} setAmbientSound={changeAmbientSound} act={act} />}
         {tab === "行囊" && <Bag data={data} act={act} />}
         {tab === "小组" && <TeamHall data={data} teamName={teamName} setTeamName={setTeamName} teamInput={teamInput} setTeamInput={setTeamInput} act={act} copy={copy} />}
         {tab === "世界" && <World data={data} act={act} activeRealmId={activeRealmId} onEnter={(realm) => { setActiveRealmId(realm.id); window.localStorage.setItem("starcamp-active-realm", realm.id); setTab("营地"); notify(`已进入${realm.name}：全站环境已切换`); }} onLeave={() => { setActiveRealmId(null); window.localStorage.removeItem("starcamp-active-realm"); }} />}
@@ -240,6 +370,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       <button className="invite-fab" onClick={() => setTab("小组")}><span>♙</span>邀请好友</button>
       {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void act({ action: "redeemInvite", code: inviteInput }, "邀请绑定成功，双方奖励已到账")}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
+      {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
     </main>
   );
 }
@@ -364,9 +495,34 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
   ].map(([key,icon,name,note]) => <button key={key} className={provider === key ? `provider-card ${key} active` : `provider-card ${key}`} onClick={() => setProvider(key)}><span>{icon}</span><div><b>{name}</b><small>{note}</small></div><em>{provider === key ? "已选择" : "选择"}</em></button>)}</div><div className="calendar-import-row"><label className="calendar-link-field"><span>订阅链接</span><input value={calendarUrl} disabled={provider === "ics" && Boolean(calendarText)} onChange={(event) => setCalendarUrl(event.target.value)} placeholder="粘贴 https:// 或 webcal:// 开头的 ICS 链接" /></label><label className="calendar-range"><span>导入范围</span><select value={rangeDays} onChange={(event) => setRangeDays(Number(event.target.value))}><option value={1}>今天</option><option value={7}>未来 7 天</option><option value={14}>未来 14 天</option><option value={30}>未来 30 天</option></select></label><label className="ics-upload"><input type="file" accept=".ics,text/calendar" onChange={(event) => void chooseCalendarFile(event.target.files?.[0])} /><span>{calendarFile ? `✓ ${calendarFile}` : "上传 .ics 文件"}</span></label><button className="calendar-import-button" disabled={importing || (!calendarUrl.trim() && !calendarText)} onClick={() => void importCalendar()}>{importing ? "正在穿越星门…" : "导入任务"}</button></div><p className="calendar-privacy">安全提示：请勿分享日历订阅链接；系统只读取日程并保存任务，不保存链接或邮箱密码。</p></section>}{creating && <div className="quest-composer"><input value={title} onChange={e => setTitle(e.target.value)} placeholder="任务名称，例如：完成作品集第二页" /><input value={detail} onChange={e => setDetail(e.target.value)} placeholder="写下清晰的完成标准" /><select value={type} onChange={e => setType(e.target.value)}><option>日常</option><option>支线</option><option>主线</option></select><button onClick={() => void create()}>加入卷轴</button></div>}<div className="quest-summary-row"><div><span>✦</span><b>{data.quests.reduce((n,q) => n + (q.done ? q.reward : 0),0)}</b><small>今日已获经验</small></div><div><span>◇</span><b>{data.quests.filter(q => !q.done).length}</b><small>待完成委托</small></div><div><span>▦</span><b>{data.quests.filter(q => q.source !== "manual").length}</b><small>日历导入任务</small></div></div></>}<div className="quest-list">{visible.map((q) => <article key={q.id} className={q.done ? "quest done" : "quest"}>{editingQuestId === q.id ? <div className="quest-edit-form"><div className="quest-edit-fields"><label><span>任务名称</span><input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={80} autoFocus /></label><label className="quest-edit-detail"><span>任务说明</span><textarea value={editDetail} onChange={(event) => setEditDetail(event.target.value)} maxLength={180} rows={2} /></label><label><span>任务类型</span><select value={editType} onChange={(event) => setEditType(event.target.value)}><option>主线</option><option>日常</option><option>支线</option></select></label></div><div className="quest-edit-actions"><button className="delete" onClick={() => void deleteQuest()} disabled={savingQuest || deletingQuest}>{deletingQuest ? "删除中…" : "删除任务"}</button><button onClick={() => setEditingQuestId(null)} disabled={savingQuest || deletingQuest}>取消</button><button className="save" onClick={() => void saveEdit()} disabled={savingQuest || deletingQuest || editTitle.trim().length < 2}>{savingQuest ? "保存中…" : "保存修改"}</button></div></div> : <><button className="quest-check" disabled={Boolean(q.done)} onClick={() => void act({ action: "completeQuest", questId: q.id }, `任务完成：经验 +${q.reward}`)}>{q.done ? "✓" : ""}</button><div className="quest-text"><div className="quest-badges"><span className={`quest-type type-${q.type}`}>{q.type}</span>{q.source !== "manual" && <span className={`calendar-source ${q.source.startsWith("google") ? "source-google" : `source-${q.source}`}`}>▦ {sourceLabel(q.source)}</span>}{q.dueAt && <time>{q.dueAt.length === 10 ? new Date(`${q.dueAt}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" }) : new Date(q.dueAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })}</time>}</div><h4>{q.title}</h4><p>{q.detail}</p></div><button className="quest-edit-button" aria-label={`编辑任务：${q.title}`} onClick={() => beginEdit(q)}>✎<span>编辑</span></button><div className="reward"><span>✦</span><b>+{q.reward}</b></div></>}</article>)}</div></section>;
 }
 
-function Focus({ data, timer, running, setRunning, setTimer, focusMinutes, setFocusMinutes, act }: { data: GameData; timer: string; running: boolean; setRunning: (v: boolean) => void; setTimer: React.Dispatch<React.SetStateAction<number>>; focusMinutes: number; setFocusMinutes: (v: number) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+function Focus({ data, timer, running, setRunning, toggleRunning, setTimer, focusMinutes, setFocusMinutes, alertMode, setAlertMode, ambientSound, setAmbientSound, act }: {
+  data: GameData;
+  timer: string;
+  running: boolean;
+  setRunning: (v: boolean) => void;
+  toggleRunning: () => void;
+  setTimer: React.Dispatch<React.SetStateAction<number>>;
+  focusMinutes: number;
+  setFocusMinutes: (v: number) => void;
+  alertMode: FocusAlertMode;
+  setAlertMode: (v: FocusAlertMode) => void;
+  ambientSound: AmbientSound;
+  setAmbientSound: (v: AmbientSound) => void;
+  act: (p: Record<string, unknown>, s: string) => Promise<boolean>;
+}) {
   function choose(minutes: number) { if (running) return; setFocusMinutes(minutes); setTimer(minutes * 60); }
-  return <section className="focus-layout"><div className="focus-stage glass-card"><div className="section-intro"><small>静谧秘境</small><h2>专注沙漏</h2><p>隔绝干扰、积累阅历，完成后自动同步到小组实力。</p></div><div className="focus-modes">{[["轻旅",15],["标准",25],["深潜",45],["长征",60]].map(([name,minutes]) => <button key={name} className={focusMinutes === minutes ? "active" : ""} onClick={() => choose(Number(minutes))}><b>{minutes}</b><span>{name}</span></button>)}</div><div className={running ? "timer-orbit giant running" : "timer-orbit giant"}><div className="orbit-dot" /><div className="timer-face"><small>{running ? "正在专注" : "准备启程"}</small><strong>{timer}</strong><span>{focusMinutes >= 45 ? "深度工作" : "专注修行"} · 云端计时</span></div></div><div className="timer-actions"><button className="secondary-button" onClick={() => { setRunning(false); setTimer(focusMinutes * 60); }}>重置</button><button className="primary-round" onClick={() => setRunning(!running)}>{running ? "Ⅱ" : "▶"}</button><button className="secondary-button" onClick={() => setTimer((v) => v + 5 * 60)}>+5 分钟</button></div></div><aside className="focus-insights"><div className="glass-card focus-stat"><small>专注总览</small><h3>{data.user.focusMinutes}<em> 分钟</em></h3><div className="focus-bars">{[35,62,45,80,55,72,40].map((v,i)=><i key={i} style={{height:`${v}%`}} />)}</div><p>坚持完成一次专注秘境，小组实力将增加 <b>{focusMinutes * 2}</b>。</p></div><div className="glass-card focus-history"><div className="card-heading"><div><small>历练手记</small><h3>最近专注</h3></div><span>◷</span></div>{data.focusHistory.length ? data.focusHistory.map(r => <article key={r.id}><span>静谧秘境</span><b>{r.minutes} 分钟</b><small>{new Date(r.created_at).toLocaleDateString("zh-CN")}</small></article>) : <div className="no-history">完成第一次专注后，记录会出现在这里。</div>}</div><button className="quick-finish" onClick={() => void act({action:"focus",minutes:focusMinutes},`已记录 ${focusMinutes} 分钟专注`)}>直接记录已完成专注</button></aside></section>;
+  const ambientOptions: { key: Exclude<AmbientSound, "none">; icon: string; name: string; note: string }[] = [
+    { key: "rain", icon: "☂", name: "星雨", note: "细密雨幕" },
+    { key: "fire", icon: "♨", name: "篝火", note: "低柔炉火" },
+    { key: "ocean", icon: "≈", name: "潮汐", note: "缓慢海浪" },
+  ];
+  const alertOptions: { key: FocusAlertMode; icon: string; name: string }[] = [
+    { key: "both", icon: "✦", name: "弹窗 + 提示音" },
+    { key: "popup", icon: "▣", name: "仅弹窗" },
+    { key: "sound", icon: "♪", name: "仅提示音" },
+    { key: "silent", icon: "◌", name: "静默结束" },
+  ];
+  return <section className="focus-layout"><div className="focus-stage glass-card"><div className="section-intro"><small>静谧秘境</small><h2>专注沙漏</h2><p>隔绝干扰、积累阅历，完成后自动同步到小组实力。</p></div><div className="focus-modes">{[["轻旅",15],["标准",25],["深潜",45],["长征",60]].map(([name,minutes]) => <button key={name} className={focusMinutes === minutes ? "active" : ""} onClick={() => choose(Number(minutes))}><b>{minutes}</b><span>{name}</span></button>)}</div><div className={running ? "timer-orbit giant running" : "timer-orbit giant"}><div className="orbit-dot" /><div className="timer-face"><small>{running ? "正在专注" : "准备启程"}</small><strong>{timer}</strong><span>{focusMinutes >= 45 ? "深度工作" : "专注修行"} · 云端计时</span></div></div><div className="timer-actions"><button className="secondary-button" onClick={() => { setRunning(false); setTimer(focusMinutes * 60); }}>重置</button><button className="primary-round" aria-label={running ? "暂停专注" : "开始专注"} onClick={toggleRunning}>{running ? "Ⅱ" : "▶"}</button><button className="secondary-button" onClick={() => setTimer((v) => v + 5 * 60)}>+5 分钟</button></div><div className="focus-control-deck"><section className="ambient-picker"><div className="focus-setting-heading"><div><small>白噪音场景</small><b>{ambientSound === "none" ? "环境音已关闭" : running ? "随专注播放中" : "开始计时后播放"}</b></div><button onClick={() => setAmbientSound("none")} className={ambientSound === "none" ? "active" : ""}>关闭</button></div><div className="ambient-options">{ambientOptions.map((option) => <button key={option.key} aria-pressed={ambientSound === option.key} className={ambientSound === option.key ? "active" : ""} onClick={() => setAmbientSound(option.key)}><span>{option.icon}</span><div><b>{option.name}</b><small>{option.note}</small></div><em>{ambientSound === option.key ? running ? "播放中" : "已选择" : "选择"}</em></button>)}</div></section><section className="alert-picker"><div className="focus-setting-heading"><div><small>结束提醒</small><b>专注结束时如何提醒</b></div><span>◷</span></div><div className="alert-options">{alertOptions.map((option) => <button key={option.key} aria-pressed={alertMode === option.key} className={alertMode === option.key ? "active" : ""} onClick={() => setAlertMode(option.key)}><span>{option.icon}</span>{option.name}</button>)}</div><p>提醒与白噪音偏好只保存在当前设备。</p></section></div></div><aside className="focus-insights"><div className="glass-card focus-stat"><small>专注总览</small><h3>{data.user.focusMinutes}<em> 分钟</em></h3><div className="focus-bars">{[35,62,45,80,55,72,40].map((v,i)=><i key={i} style={{height:`${v}%`}} />)}</div><p>坚持完成一次专注秘境，小组实力将增加 <b>{focusMinutes * 2}</b>。</p></div><div className="glass-card focus-history"><div className="card-heading"><div><small>历练手记</small><h3>最近专注</h3></div><span>◷</span></div>{data.focusHistory.length ? data.focusHistory.map(r => <article key={r.id}><span>静谧秘境</span><b>{r.minutes} 分钟</b><small>{new Date(r.created_at).toLocaleDateString("zh-CN")}</small></article>) : <div className="no-history">完成第一次专注后，记录会出现在这里。</div>}</div><button className="quick-finish" onClick={() => void act({action:"focus",minutes:focusMinutes},`已记录 ${focusMinutes} 分钟专注`)}>直接记录已完成专注</button></aside></section>;
 }
 
 const catalog = [
