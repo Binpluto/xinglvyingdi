@@ -236,3 +236,24 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(migration, /ADD `completed_at`/);
   assert.match(migration, /UPDATE `quests` SET `completed_at` = `created_at`/);
 });
+
+test("supports secure batch selection and deletion of quests", async () => {
+  const [client, css, route] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(client, /批量管理/);
+  assert.match(client, /全选当前/);
+  assert.match(client, /删除选中/);
+  assert.match(client, /selectedQuestIds/);
+  assert.match(client, /batchDeleteQuests/);
+  assert.match(client, /确定删除选中的/);
+  assert.match(css, /\.quest-bulk-bar/);
+  assert.match(css, /\.quest-select\.selected/);
+  assert.match(route, /body\.action === "batchDeleteQuests"/);
+  assert.match(route, /\.slice\(0, 100\)/);
+  assert.match(route, /owned\.results\.length !== questIds\.length/);
+  assert.match(route, /DELETE FROM quests WHERE user_email = \? AND id IN/);
+});

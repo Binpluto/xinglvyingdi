@@ -240,3 +240,22 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .app-shell[class*="realm-"] .task-activity-stats strong{color:var(--realm-primary)}
 .app-shell[class*="realm-"] .activity-cell.level-1{background:color-mix(in srgb,var(--realm-primary) 28%,white)}.app-shell[class*="realm-"] .activity-cell.level-2{background:color-mix(in srgb,var(--realm-primary) 52%,white)}.app-shell[class*="realm-"] .activity-cell.level-3{background:color-mix(in srgb,var(--realm-primary) 76%,white)}.app-shell[class*="realm-"] .activity-cell.level-4{background:var(--realm-deep)}
 @media(max-width:700px){.task-activity{padding:18px 16px}.task-activity-heading h3{font-size:14px}.task-activity-stats{grid-template-columns:repeat(3,1fr);gap:7px}.task-activity-stats strong{font-size:24px}.activity-scroll{margin-right:-16px;padding-right:16px}}
+
+/* Quest batch selection */
+.quest-toolbar .batch-manage-button{border:1px solid rgba(78,126,132,.14);background:rgba(244,248,245,.8);color:#5f7a82}
+.quest-toolbar .batch-manage-button.active{border-color:#b89558;background:#f1e3bd;color:#7f642e}
+.quest-bulk-bar{display:flex;align-items:center;gap:9px;margin:12px 0;padding:11px 13px;border:1px solid rgba(71,126,130,.16);border-radius:12px;background:linear-gradient(100deg,rgba(229,241,236,.9),rgba(247,249,243,.9))}
+.quest-bulk-bar>span{flex:1;color:#71878e;font:9px "PingFang SC",sans-serif}
+.quest-bulk-bar>span b{color:#2c7581;font-size:13px}
+.quest-bulk-bar>button{border:0;border-radius:9px;padding:8px 12px;background:#e0ebe7;color:#607a82;font:9px "PingFang SC",sans-serif;cursor:pointer}
+.quest-bulk-bar .bulk-select-all{background:#d6ebe4;color:#34756f}
+.quest-bulk-bar .bulk-cancel{background:transparent}
+.quest-bulk-bar .bulk-delete{background:#b85550;color:#fff;box-shadow:0 5px 14px rgba(162,69,64,.16)}
+.quest-bulk-bar .bulk-delete:disabled{background:#d9dfdc;color:#98a3a0;box-shadow:none;cursor:not-allowed}
+.quest-select{flex:0 0 25px;width:25px;height:25px;border:1px solid #9eb9ba;border-radius:7px;background:rgba(255,255,255,.72);color:#fff;cursor:pointer;transition:.18s}
+.quest-select.selected{border-color:#3d9182;background:#3d9182;box-shadow:0 0 0 4px rgba(61,145,130,.1)}
+.quest.selected{margin:0 -9px;padding-left:9px;padding-right:9px;border-radius:11px;background:rgba(219,239,231,.62)}
+.quest.selected:hover{padding-left:12px}
+.app-shell[class*="realm-"] .quest-select.selected,.app-shell[class*="realm-"] .quest-bulk-bar .bulk-select-all{background:var(--realm-primary);color:#fff;border-color:var(--realm-primary)}
+.app-shell[class*="realm-"] .quest.selected{background:color-mix(in srgb,var(--realm-primary) 13%,transparent)}
+@media(max-width:700px){.quest-toolbar-actions{grid-template-columns:repeat(3,1fr)!important}.quest-toolbar-actions button{padding:7px 5px;white-space:nowrap}.quest-bulk-bar{display:grid;grid-template-columns:1fr 1fr}.quest-bulk-bar>span{grid-column:1/-1;grid-row:1}.quest-bulk-bar .bulk-delete{grid-column:2}.quest-bulk-bar .bulk-cancel{display:none}.quest{gap:9px}}

@@ -413,6 +413,7 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       action?: string;
       questId?: number;
+      questIds?: number[];
       minutes?: number;
       code?: string;
       name?: string;
@@ -494,6 +495,21 @@ export async function POST(request: Request) {
       if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
       await db.prepare("DELETE FROM quests WHERE id = ? AND user_email = ?")
         .bind(body.questId, identity.email).run();
+    } else if (body.action === "batchDeleteQuests") {
+      const questIds = Array.isArray(body.questIds)
+        ? [...new Set(body.questIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 100)
+        : [];
+      if (!questIds.length) return Response.json({ error: "请至少选择一个任务" }, { status: 400 });
+      const placeholders = questIds.map(() => "?").join(",");
+      const owned = await db.prepare(`
+        SELECT id FROM quests WHERE user_email = ? AND id IN (${placeholders})
+      `).bind(identity.email, ...questIds).all<{ id: number }>();
+      if (owned.results.length !== questIds.length) {
+        return Response.json({ error: "选中的任务中包含不存在或无权操作的记录" }, { status: 403 });
+      }
+      await db.prepare(`
+        DELETE FROM quests WHERE user_email = ? AND id IN (${placeholders})
+      `).bind(identity.email, ...questIds).run();
     } else if (body.action === "createQuest") {
       const title = (body.title ?? "").trim().slice(0, 40);
       const detail = (body.detail ?? "").trim().slice(0, 100);
