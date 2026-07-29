@@ -257,3 +257,23 @@ test("supports secure batch selection and deletion of quests", async () => {
   assert.match(route, /owned\.results\.length !== questIds\.length/);
   assert.match(route, /DELETE FROM quests WHERE user_email = \? AND id IN/);
 });
+
+test("celebrates every 50-level milestone without repeating dismissed popups", async () => {
+  const [client, css] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /milestoneCopy/);
+  assert.match(client, /Math\.floor\(currentLevel \/ 50\) \* 50/);
+  assert.match(client, /reachedMilestone < 50/);
+  assert.match(client, /reachedMilestone > lastCelebrated/);
+  assert.match(client, /starcamp-level-milestone:/);
+  assert.match(client, /等级里程碑/);
+  assert.match(client, /下一里程碑/);
+  assert.match(client, /继续远征/);
+  assert.match(client, /level-milestone-backdrop/);
+  assert.match(css, /\.level-milestone-card/);
+  assert.match(css, /milestone-arrive/);
+  assert.match(css, /prefers-reduced-motion/);
+});

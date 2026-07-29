@@ -66,6 +66,15 @@ continents.forEach((continent) => Object.assign(continent, advancedRealmMeta[con
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+const milestoneCopy = (level: number) => {
+  const chapters = [
+    { title: "星火成炬", message: "你已把一个个微小行动，汇聚成足以照亮前路的星光。" },
+    { title: "远征不息", message: "真正的成长从不喧哗。你坚持走过的每一步，都已经成为实力。" },
+    { title: "群星见证", message: "你不只抵达了更高等级，也成为同行者眼中可靠的光。" },
+    { title: "传奇新章", message: "里程碑不是终点，而是你有能力继续创造更大世界的证明。" },
+  ];
+  return chapters[(Math.floor(level / 50) - 1) % chapters.length];
+};
 const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const storedDateKey = (value: string) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -185,6 +194,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const [focusAlertMode, setFocusAlertMode] = useState<FocusAlertMode>("both");
   const [ambientSound, setAmbientSound] = useState<AmbientSound>("rain");
   const [showFocusComplete, setShowFocusComplete] = useState(false);
+  const [levelMilestone, setLevelMilestone] = useState<number | null>(null);
   const [activeRealmId, setActiveRealmId] = useState<string | null>(null);
   const [showLevelGuide, setShowLevelGuide] = useState(false);
   const alertAudioRef = useRef<AudioContext | null>(null);
@@ -239,6 +249,18 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     if (realm && progress?.unlocked) setActiveRealmId(realm.id);
     else if (saved) window.localStorage.removeItem("starcamp-active-realm");
   }, [data?.realmProgress]);
+  useEffect(() => {
+    if (!data) return;
+    const currentLevel = levelFromXp(data.user.xp);
+    const reachedMilestone = Math.floor(currentLevel / 50) * 50;
+    if (reachedMilestone < 50) return;
+    const storageKey = `starcamp-level-milestone:${identity.email}`;
+    const lastCelebrated = Number(window.localStorage.getItem(storageKey) || 0);
+    if (reachedMilestone > lastCelebrated) {
+      setLevelMilestone(reachedMilestone);
+      window.localStorage.setItem(storageKey, String(reachedMilestone));
+    }
+  }, [data?.user.xp, identity.email]);
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("calendar");
     if (!status) return;
@@ -321,6 +343,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const level = levelFromXp(xp);
   const levelXp = xp % XP_PER_LEVEL;
   const activeRealm = continents.find((continent) => continent.id === activeRealmId) ?? null;
+  const activeMilestoneCopy = levelMilestone ? milestoneCopy(levelMilestone) : null;
 
   if (!data) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
@@ -371,6 +394,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void act({ action: "redeemInvite", code: inviteInput }, "邀请绑定成功，双方奖励已到账")}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
+      {levelMilestone && activeMilestoneCopy && <div className="level-milestone-backdrop"><div className="milestone-stars" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index}>✦</i>)}</div><section className="level-milestone-card" role="dialog" aria-modal="true" aria-labelledby="level-milestone-title"><button className="level-milestone-close" aria-label="关闭等级里程碑提示" onClick={() => setLevelMilestone(null)}>×</button><div className="milestone-radiance" aria-hidden="true" /><div className="milestone-level"><span>Lv.</span><strong>{levelMilestone}</strong></div><small>LEVEL MILESTONE · 等级里程碑</small><h2 id="level-milestone-title">恭喜抵达 Lv.{levelMilestone}</h2><h3>{activeMilestoneCopy.title}</h3><p>{activeMilestoneCopy.message}</p><div className="milestone-next"><span>下一里程碑</span><b>Lv.{levelMilestone + 50}</b></div><button className="milestone-continue" onClick={() => setLevelMilestone(null)}>收下祝福 · 继续远征</button></section></div>}
     </main>
   );
 }
