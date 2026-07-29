@@ -318,7 +318,10 @@ async function dashboard(email: string) {
   await syncRealmUnlock(email);
   const user = await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<UserRow>();
   const quests = await db.prepare(`
-    SELECT id, title, detail, type, reward, source, due_at AS dueAt, completed AS done
+    SELECT id, title, detail, type, reward, source, due_at AS dueAt,
+      CASE WHEN instr(created_at, 'T') > 0
+        THEN created_at ELSE replace(created_at, ' ', 'T') || 'Z' END AS createdAt,
+      completed AS done
     FROM quests WHERE user_email = ?
     ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, id
   `).bind(email).all();

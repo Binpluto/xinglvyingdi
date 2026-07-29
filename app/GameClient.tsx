@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; done: number };
+type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
 type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[] };
 type RankTeam = { id: number; name: string; code: string; members: number; strength: number; focus_minutes: number };
@@ -67,15 +67,28 @@ const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊",
 const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
 const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const storedDateKey = (value: string) => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{4}-\d{2}-\d{2} /.test(value)) return value.slice(0, 10);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : localDateKey(date);
+};
 const questDateKey = (quest: Quest) => {
   if (!quest.dueAt) return "";
-  if (quest.dueAt.length === 10) return quest.dueAt;
-  const date = new Date(quest.dueAt);
-  return Number.isNaN(date.getTime()) ? "" : localDateKey(date);
+  return storedDateKey(quest.dueAt);
+};
+const questTaskDateKey = (quest: Quest) => questDateKey(quest) || storedDateKey(quest.createdAt);
+const todayRelevantQuests = (quests: Quest[]) => {
+  const today = localDateKey(new Date());
+  return quests.filter((quest) => {
+    const taskDate = questTaskDateKey(quest);
+    if (!taskDate) return !quest.done;
+    return taskDate === today || (taskDate < today && !quest.done);
+  });
 };
 const sortQuests = (quests: Quest[]) => {
   const today = localDateKey(new Date());
-  const rank = (quest: Quest) => quest.done ? 3 : questDateKey(quest) === today ? 0 : !quest.dueAt ? 1 : 2;
+  const rank = (quest: Quest) => quest.done ? 3 : questTaskDateKey(quest) === today ? 0 : !quest.dueAt ? 1 : 2;
   return [...quests].sort((left, right) =>
     rank(left) - rank(right)
     || (left.dueAt || "9999").localeCompare(right.dueAt || "9999")
@@ -232,7 +245,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
 }
 
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
-  const calendarAgenda = sortQuests(data.quests.filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
+  const calendarAgenda = sortQuests(todayRelevantQuests(data.quests).filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
   const agenda = calendarAgenda.length ? calendarAgenda.map((quest) => ({
     time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
     title: quest.title,
@@ -259,7 +272,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
   </div></>;
 }
 
-function QuestBoard({ data, done, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; compact?: boolean }) {
+function QuestBoard({ data, done: _allDone, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; compact?: boolean }) {
   const [filter, setFilter] = useState("全部");
   const [creating, setCreating] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -279,6 +292,9 @@ function QuestBoard({ data, done, act, compact = false }: { data: GameData; done
   const [savingQuest, setSavingQuest] = useState(false);
   const [deletingQuest, setDeletingQuest] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
+  const boardQuests = todayRelevantQuests(data.quests);
+  data = { ...data, quests: boardQuests };
+  const done = boardQuests.filter((quest) => Boolean(quest.done)).length;
   const visible = sortQuests(data.quests.filter(q => filter === "全部" || (filter === "日历" ? q.source !== "manual" : q.type === filter)));
   async function create() {
     await act({ action: "createQuest", title, detail, type }, "新委托已加入任务卷轴");

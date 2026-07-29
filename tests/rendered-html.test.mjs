@@ -58,11 +58,18 @@ test("supports secure calendar-to-task imports", async () => {
 });
 
 test("orders today's unfinished quests first and completed quests last", async () => {
-  const client = await readFile(new URL("app/GameClient.tsx", root), "utf8");
+  const [client, route] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+  ]);
 
+  assert.match(route, /replace\(created_at, ' ', 'T'\) \|\| 'Z' END AS createdAt/);
+  assert.match(client, /const todayRelevantQuests/);
+  assert.match(client, /taskDate === today \|\| \(taskDate < today && !quest\.done\)/);
   assert.match(client, /const sortQuests/);
-  assert.match(client, /questDateKey\(quest\) === today \? 0/);
+  assert.match(client, /questTaskDateKey\(quest\) === today \? 0/);
   assert.match(client, /quest\.done \? 3/);
+  assert.match(client, /data = \{ \.\.\.data, quests: boardQuests \}/);
   assert.match(client, /const visible = sortQuests/);
   assert.match(client, /const calendarAgenda = sortQuests/);
 });
