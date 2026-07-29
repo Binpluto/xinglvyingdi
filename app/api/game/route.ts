@@ -321,6 +321,9 @@ async function dashboard(email: string) {
     SELECT id, title, detail, type, reward, source, due_at AS dueAt,
       CASE WHEN instr(created_at, 'T') > 0
         THEN created_at ELSE replace(created_at, ' ', 'T') || 'Z' END AS createdAt,
+      CASE WHEN completed_at IS NULL THEN NULL
+        WHEN instr(completed_at, 'T') > 0 THEN completed_at
+        ELSE replace(completed_at, ' ', 'T') || 'Z' END AS completedAt,
       completed AS done
     FROM quests WHERE user_email = ?
     ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, id
@@ -468,7 +471,7 @@ export async function POST(request: Request) {
       if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
       if (!quest.completed) {
         await db.batch([
-          db.prepare("UPDATE quests SET completed = 1 WHERE id = ? AND user_email = ?").bind(body.questId, identity.email),
+          db.prepare("UPDATE quests SET completed = 1, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?").bind(body.questId, identity.email),
           db.prepare("UPDATE users SET xp = xp + ?, coins = coins + ? WHERE email = ?")
             .bind(quest.reward, Math.ceil(quest.reward / 2), identity.email),
         ]);

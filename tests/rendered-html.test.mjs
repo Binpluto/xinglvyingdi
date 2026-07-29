@@ -211,3 +211,28 @@ test("offers focus completion alerts and three generated white-noise scenes", as
   assert.match(css, /\.ambient-options/);
   assert.match(css, /\.focus-complete-backdrop/);
 });
+
+test("tracks durable task completions in a calendar activity map", async () => {
+  const [client, css, route, schema, migration] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0006_dusty_zarek.sql", root), "utf8"),
+  ]);
+
+  assert.match(client, /TaskCompletionMap/);
+  assert.match(client, /完成任务量/);
+  assert.match(client, /累计完成/);
+  assert.match(client, /活跃天数/);
+  assert.match(client, /连续天数/);
+  assert.match(client, /weekCount = 18/);
+  assert.match(client, /activity-cell level-/);
+  assert.match(css, /\.task-activity/);
+  assert.match(css, /\.activity-weeks/);
+  assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
+  assert.match(route, /AS completedAt/);
+  assert.match(schema, /completedAt: text\("completed_at"\)/);
+  assert.match(migration, /ADD `completed_at`/);
+  assert.match(migration, /UPDATE `quests` SET `completed_at` = `created_at`/);
+});

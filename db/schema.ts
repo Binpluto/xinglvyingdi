@@ -42,6 +42,7 @@ export const quests = sqliteTable("quests", {
   dueAt: text("due_at"),
   externalId: text("external_id"),
   completed: integer("completed", { mode: "boolean" }).notNull().default(false),
+  completedAt: text("completed_at"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("quests_calendar_event_idx").on(table.userEmail, table.source, table.externalId),
