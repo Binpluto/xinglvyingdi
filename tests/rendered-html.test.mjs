@@ -198,9 +198,17 @@ test("offers focus completion alerts and three generated white-noise scenes", as
 
   assert.match(client, /new AudioContext\(\)/);
   assert.match(client, /createAmbientSession/);
+  assert.match(client, /createBuffer\(2,/);
+  assert.match(client, /transientTone/);
+  assert.match(client, /emberRumble/);
+  assert.match(client, /wavePeriod/);
+  assert.match(client, /createDynamicsCompressor/);
   assert.match(client, /星雨/);
+  assert.match(client, /近窗细雨 · 偶有雨滴/);
   assert.match(client, /篝火/);
+  assert.match(client, /木柴爆裂 · 炉火低鸣/);
   assert.match(client, /潮汐/);
+  assert.match(client, /远近浪涌 · 泡沫回落/);
   assert.match(client, /弹窗 \+ 提示音/);
   assert.match(client, /仅弹窗/);
   assert.match(client, /仅提示音/);
@@ -213,12 +221,13 @@ test("offers focus completion alerts and three generated white-noise scenes", as
 });
 
 test("tracks durable task completions in a calendar activity map", async () => {
-  const [client, css, route, schema, migration] = await Promise.all([
+  const [client, css, route, schema, migration, activityMigration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("drizzle/0006_dusty_zarek.sql", root), "utf8"),
+    readFile(new URL("drizzle/0007_wooden_zombie.sql", root), "utf8"),
   ]);
 
   assert.match(client, /TaskCompletionMap/);
@@ -228,13 +237,23 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /连续天数/);
   assert.match(client, /weekCount = 18/);
   assert.match(client, /activity-cell level-/);
+  assert.match(client, /云端永久记录/);
+  assert.match(client, /最近留下的足迹/);
+  assert.match(client, /scrollLeft = scroller\.scrollWidth/);
   assert.match(css, /\.task-activity/);
   assert.match(css, /\.activity-weeks/);
+  assert.match(css, /\.recent-footprints/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
+  assert.match(route, /INSERT OR IGNORE INTO quest_completions/);
+  assert.match(route, /completed_date AS date/);
+  assert.match(route, /questCompletionTotal/);
   assert.match(schema, /completedAt: text\("completed_at"\)/);
+  assert.match(schema, /questCompletions = sqliteTable\("quest_completions"/);
   assert.match(migration, /ADD `completed_at`/);
   assert.match(migration, /UPDATE `quests` SET `completed_at` = `created_at`/);
+  assert.match(activityMigration, /CREATE TABLE `quest_completions`/);
+  assert.match(activityMigration, /INSERT OR IGNORE INTO `quest_completions`/);
 });
 
 test("supports secure batch selection and deletion of quests", async () => {

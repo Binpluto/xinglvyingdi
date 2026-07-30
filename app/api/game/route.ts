@@ -242,7 +242,7 @@ async function currentUser(request: Request) {
 async function realmGateStatuses(email: string) {
   const metrics = await env.DB.prepare(`
     SELECT u.xp, u.focus_minutes,
-      (SELECT COUNT(*) FROM quests q WHERE q.user_email = u.email AND q.completed = 1) AS completed_quests,
+      (SELECT COUNT(*) FROM quest_completions qc WHERE qc.user_email = u.email) AS completed_quests,
       (SELECT COUNT(*) FROM referrals r WHERE r.referrer_email = u.email) AS referral_count,
       COALESCE((
         SELECT COUNT(*) FROM team_members group_member
@@ -328,6 +328,21 @@ async function dashboard(email: string) {
     FROM quests WHERE user_email = ?
     ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at, id
   `).bind(email).all();
+  const questActivity = await db.prepare(`
+    SELECT completed_date AS date, COUNT(*) AS count
+    FROM quest_completions WHERE user_email = ?
+    GROUP BY completed_date ORDER BY completed_date
+  `).bind(email).all();
+  const questCompletionTotal = await db.prepare(`
+    SELECT COUNT(*) AS count FROM quest_completions WHERE user_email = ?
+  `).bind(email).first<{ count: number }>();
+  const recentQuestCompletions = await db.prepare(`
+    SELECT id, quest_title AS title, reward,
+      CASE WHEN instr(completed_at, 'T') > 0
+        THEN completed_at ELSE replace(completed_at, ' ', 'T') || 'Z' END AS completedAt
+    FROM quest_completions WHERE user_email = ?
+    ORDER BY id DESC LIMIT 5
+  `).bind(email).all();
   const team = await db.prepare(`
     SELECT t.id, t.name, t.code, t.owner_email,
       (SELECT COUNT(*) FROM team_members tm2 WHERE tm2.team_id = t.id) AS member_count
@@ -383,6 +398,9 @@ async function dashboard(email: string) {
       referralCount: referralCount?.count ?? 0,
     },
     quests: quests.results,
+    questActivity: questActivity.results,
+    questCompletionTotal: questCompletionTotal?.count ?? 0,
+    recentQuestCompletions: recentQuestCompletions.results,
     focusHistory: focusHistory.results,
     inventory: inventory.results,
     realmProgress: realmProgress.results,
@@ -429,6 +447,7 @@ export async function POST(request: Request) {
       realmId?: string;
       regionIndex?: number;
       criteriaConfirmed?: number[];
+      clientDate?: string;
     };
     const db = env.DB;
 
@@ -471,8 +490,17 @@ export async function POST(request: Request) {
       ).bind(body.questId, identity.email).first<{ reward: number; completed: number }>();
       if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
       if (!quest.completed) {
+        const completedDate = /^\d{4}-\d{2}-\d{2}$/.test(body.clientDate ?? "")
+          ? body.clientDate!
+          : new Date().toISOString().slice(0, 10);
         await db.batch([
           db.prepare("UPDATE quests SET completed = 1, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?").bind(body.questId, identity.email),
+          db.prepare(`
+            INSERT OR IGNORE INTO quest_completions
+              (user_email, quest_id, quest_title, reward, source, completed_date)
+            SELECT user_email, id, title, reward, source, ?
+            FROM quests WHERE id = ? AND user_email = ?
+          `).bind(completedDate, body.questId, identity.email),
           db.prepare("UPDATE users SET xp = xp + ?, coins = coins + ? WHERE email = ?")
             .bind(quest.reward, Math.ceil(quest.reward / 2), identity.email),
         ]);

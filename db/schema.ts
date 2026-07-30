@@ -48,6 +48,20 @@ export const quests = sqliteTable("quests", {
   uniqueIndex("quests_calendar_event_idx").on(table.userEmail, table.source, table.externalId),
 ]);
 
+export const questCompletions = sqliteTable("quest_completions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  questId: integer("quest_id"),
+  questTitle: text("quest_title").notNull(),
+  reward: integer("reward").notNull(),
+  source: text("source").notNull().default("manual"),
+  completedDate: text("completed_date").notNull(),
+  completedAt: text("completed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("quest_completions_quest_idx").on(table.userEmail, table.questId),
+  index("quest_completions_activity_idx").on(table.userEmail, table.completedDate),
+]);
+
 export const focusSessions = sqliteTable("focus_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),

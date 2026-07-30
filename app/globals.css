@@ -215,6 +215,7 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .task-activity-heading small{display:block;font:8px "PingFang SC",sans-serif;letter-spacing:.16em;color:#ae8640}
 .task-activity-heading h3{margin:5px 0 0;font-size:16px;font-weight:500;color:#315b64}
 .task-activity-heading>span{padding:6px 10px;border-radius:12px;background:rgba(219,234,229,.8);color:#6f878d;font:8px "PingFang SC",sans-serif;white-space:nowrap}
+.task-activity-heading>.activity-today-count.active{background:#d9f0df;color:#24784e;box-shadow:0 0 0 1px rgba(39,138,88,.08),0 5px 14px rgba(39,138,88,.1)}
 .task-activity-stats{display:grid;grid-template-columns:repeat(3,minmax(90px,150px));gap:14px;margin:20px 0 17px}
 .task-activity-stats>div{padding-right:15px;border-right:1px solid rgba(98,135,135,.14)}
 .task-activity-stats>div:last-child{border-right:0}
@@ -233,11 +234,19 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .activity-cell.today{outline:1px solid #c79a44;outline-offset:2px}.activity-cell.future{opacity:.3}
 .activity-months{grid-column:2;display:grid;grid-template-columns:repeat(18,1fr);gap:5px;color:#819497;font:8px "PingFang SC",sans-serif}
 .activity-months span{white-space:nowrap}
+.recent-footprints{margin-top:16px;padding-top:14px;border-top:1px solid rgba(79,125,124,.12)}
+.recent-footprints>small{display:block;margin-bottom:8px;color:#a07d3e;font:8px "PingFang SC",sans-serif;letter-spacing:.08em}
+.recent-footprints>div{display:grid;gap:6px}
+.recent-footprints>div>span{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;background:rgba(255,255,255,.52);color:#6f8388;font:8px "PingFang SC",sans-serif}
+.recent-footprints i{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#d5ecdf;color:#2e8a5b;font-style:normal}
+.recent-footprints b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#49656c;font-weight:500}
+.recent-footprints time{color:#8fa0a2;white-space:nowrap}
 .activity-legend{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:10px;color:#87989b;font:8px "PingFang SC",sans-serif}
 .activity-legend small{font:7px "PingFang SC",sans-serif}
 .activity-legend i{width:12px;height:12px;border-radius:3px;background:#e4e9e7}
 .app-shell[class*="realm-"] .task-activity{border-color:var(--realm-line);background:color-mix(in srgb,var(--realm-surface) 88%,white)}
 .app-shell[class*="realm-"] .task-activity-stats strong{color:var(--realm-primary)}
+.app-shell[class*="realm-"] .recent-footprints i{background:color-mix(in srgb,var(--realm-primary) 18%,white);color:var(--realm-primary)}
 .app-shell[class*="realm-"] .activity-cell.level-1{background:color-mix(in srgb,var(--realm-primary) 28%,white)}.app-shell[class*="realm-"] .activity-cell.level-2{background:color-mix(in srgb,var(--realm-primary) 52%,white)}.app-shell[class*="realm-"] .activity-cell.level-3{background:color-mix(in srgb,var(--realm-primary) 76%,white)}.app-shell[class*="realm-"] .activity-cell.level-4{background:var(--realm-deep)}
 @media(max-width:700px){.task-activity{padding:18px 16px}.task-activity-heading h3{font-size:14px}.task-activity-stats{grid-template-columns:repeat(3,1fr);gap:7px}.task-activity-stats strong{font-size:24px}.activity-scroll{margin-right:-16px;padding-right:16px}}
 

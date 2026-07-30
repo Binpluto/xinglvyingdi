@@ -7,6 +7,9 @@ type Member = { display_name: string; email: string; xp: number; focus_minutes: 
 type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[] };
 type RankTeam = { id: number; name: string; code: string; members: number; strength: number; focus_minutes: number };
 type FocusRecord = { id: number; minutes: number; created_at: string };
+type QuestActivityDay = { date: string; count: number };
+type QuestCompletionRecord = { id: number; title: string; reward: number; completedAt: string };
+type QuestActivityFeed = Quest[] & { activity: QuestActivityDay[]; total: number; recent: QuestCompletionRecord[] };
 type InventoryItem = { item_key: string; quantity: number; acquired_at: string };
 type RealmProgress = { realmId: string; completedRegions: number; unlocked: number; target: number; unlockedAt: string | null };
 type RealmGateRequirement = { key: string; label: string; current: number; required: number; unit: string; met: boolean };
@@ -15,6 +18,9 @@ type CalendarConnection = { connected: boolean; googleEmail: string | null; last
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
   quests: Quest[];
+  questActivity: QuestActivityDay[];
+  questCompletionTotal: number;
+  recentQuestCompletions: QuestCompletionRecord[];
   focusHistory: FocusRecord[];
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
@@ -109,57 +115,73 @@ type FocusAlertMode = "both" | "popup" | "sound" | "silent";
 type AmbientSound = "rain" | "fire" | "ocean" | "none";
 type AmbientSession = {
   context: AudioContext;
-  source: AudioBufferSourceNode;
-  lfo?: OscillatorNode;
+  sources: AudioBufferSourceNode[];
 };
 
 function createAmbientSession(kind: Exclude<AmbientSound, "none">): AmbientSession {
   const context = new AudioContext();
-  const seconds = 4;
-  const buffer = context.createBuffer(1, context.sampleRate * seconds, context.sampleRate);
-  const samples = buffer.getChannelData(0);
-  let smoothed = 0;
-  for (let index = 0; index < samples.length; index += 1) {
-    const white = Math.random() * 2 - 1;
-    if (kind === "rain") samples[index] = white * .7;
-    else if (kind === "fire") {
-      smoothed = (smoothed + .025 * white) / 1.025;
-      samples[index] = smoothed * 3.2;
-    } else {
-      smoothed = smoothed * .985 + white * .015;
-      samples[index] = smoothed * 2.4;
+  const seconds = kind === "ocean" ? 18 : kind === "fire" ? 13 : 11;
+  const buffer = context.createBuffer(2, context.sampleRate * seconds, context.sampleRate);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const samples = buffer.getChannelData(channel);
+    let brown = 0;
+    let transient = 0;
+    let transientTone = 1100;
+    for (let index = 0; index < samples.length; index += 1) {
+      const time = index / context.sampleRate;
+      const white = Math.random() * 2 - 1;
+      brown = brown * .994 + white * .006;
+      let sample = 0;
+      if (kind === "rain") {
+        if (Math.random() < .00042) {
+          transient = .35 + Math.random() * .65;
+          transientTone = 1200 + Math.random() * 2400;
+        }
+        transient *= .996;
+        const drop = Math.sin(time * Math.PI * 2 * transientTone) * transient;
+        sample = white * .54 + brown * 1.4 + drop * .22;
+      } else if (kind === "fire") {
+        if (Math.random() < .0002) transient = .5 + Math.random() * .85;
+        transient *= .983;
+        const emberRumble = Math.sin(time * Math.PI * 2 * (46 + channel * 7)) * .08;
+        sample = brown * 3.2 + emberRumble + white * transient * .78;
+      } else {
+        const wavePeriod = 5.4 + channel * .75;
+        const swell = Math.pow(.5 + .5 * Math.sin(time * Math.PI * 2 / wavePeriod - Math.PI / 2), 1.65);
+        const backwash = Math.pow(.5 + .5 * Math.sin(time * Math.PI * 2 / (wavePeriod * .51) + 1.4), 2.2);
+        sample = brown * (2.1 + swell * 2.8) + white * (swell * .28 + backwash * .08);
+      }
+      samples[index] = Math.tanh(sample);
     }
   }
 
   const source = context.createBufferSource();
-  const filter = context.createBiquadFilter();
+  const highpass = context.createBiquadFilter();
+  const lowpass = context.createBiquadFilter();
+  const compressor = context.createDynamicsCompressor();
   const master = context.createGain();
   source.buffer = buffer;
   source.loop = true;
-  filter.type = kind === "rain" ? "bandpass" : "lowpass";
-  filter.frequency.value = kind === "rain" ? 2600 : kind === "fire" ? 850 : 680;
-  filter.Q.value = kind === "rain" ? .7 : .35;
-  master.gain.value = kind === "fire" ? .16 : .12;
-  source.connect(filter).connect(master).connect(context.destination);
-
-  let lfo: OscillatorNode | undefined;
-  if (kind === "ocean") {
-    lfo = context.createOscillator();
-    const swell = context.createGain();
-    lfo.frequency.value = .09;
-    swell.gain.value = .065;
-    lfo.connect(swell).connect(master.gain);
-    lfo.start();
-  }
+  highpass.type = "highpass";
+  highpass.frequency.value = kind === "rain" ? 420 : kind === "fire" ? 45 : 70;
+  lowpass.type = "lowpass";
+  lowpass.frequency.value = kind === "rain" ? 7200 : kind === "fire" ? 2100 : 1350;
+  lowpass.Q.value = kind === "rain" ? .4 : .65;
+  compressor.threshold.value = -22;
+  compressor.knee.value = 16;
+  compressor.ratio.value = 3;
+  master.gain.value = kind === "rain" ? .115 : kind === "fire" ? .18 : .16;
+  source.connect(highpass).connect(lowpass).connect(compressor).connect(master).connect(context.destination);
   source.start();
   void context.resume();
-  return { context, source, lfo };
+  return { context, sources: [source] };
 }
 
 function stopAmbientSession(session: AmbientSession | null) {
   if (!session) return;
-  try { session.source.stop(); } catch {}
-  try { session.lfo?.stop(); } catch {}
+  session.sources.forEach((source) => {
+    try { source.stop(); } catch {}
+  });
   void session.context.close();
 }
 
@@ -290,7 +312,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   }
 
   async function act(payload: Record<string, unknown>, success: string) {
-    const res = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const res = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, clientDate: localDateKey(new Date()) }) });
     const json = await res.json();
     if (res.status === 401) {
       await onLogout();
@@ -427,15 +449,10 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
   </div></>;
 }
 
-function TaskCompletionMap({ quests }: { quests: Quest[] }) {
+function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
   const weekCount = 18;
-  const completedQuests = quests.filter((quest) => Boolean(quest.done));
-  const completionCounts = new Map<string, number>();
-  completedQuests.forEach((quest) => {
-    if (!quest.completedAt) return;
-    const key = storedDateKey(quest.completedAt);
-    if (key) completionCounts.set(key, (completionCounts.get(key) ?? 0) + 1);
-  });
+  const completionCounts = new Map(quests.activity.map((day) => [day.date, Number(day.count)]));
+  const activityScrollRef = useRef<HTMLDivElement | null>(null);
 
   const today = new Date();
   today.setHours(12, 0, 0, 0);
@@ -473,15 +490,20 @@ function TaskCompletionMap({ quests }: { quests: Quest[] }) {
     streak += 1;
     cursor.setDate(cursor.getDate() - 1);
   }
+  const todayCount = completionCounts.get(todayKey) ?? 0;
+  useEffect(() => {
+    const scroller = activityScrollRef.current;
+    if (scroller) scroller.scrollLeft = scroller.scrollWidth;
+  }, [quests.activity]);
 
   return <section className="task-activity">
-    <div className="task-activity-heading"><div><small>冒险足迹 · 完成任务量</small><h3>每一次完成，都在地图上留下星光</h3></div><span>近 {weekCount} 周</span></div>
+    <div className="task-activity-heading"><div><small>冒险足迹 · 完成任务量 · 云端永久记录</small><h3>每一次完成，都在地图上留下星光</h3></div><span className={todayCount ? "activity-today-count active" : "activity-today-count"}>今日 +{todayCount}</span></div>
     <div className="task-activity-stats">
-      <div><strong>{completedQuests.length}</strong><span>累计完成</span></div>
+      <div><strong>{quests.total}</strong><span>累计完成</span></div>
       <div><strong>{completionCounts.size}</strong><span>活跃天数</span></div>
       <div><strong>{streak}</strong><span>连续天数</span></div>
     </div>
-    <div className="activity-scroll">
+    <div className="activity-scroll" ref={activityScrollRef}>
       <div className="activity-chart">
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>
         <div className="activity-weeks">{weeks.map((week) => <div className="activity-week" key={week.key}>{week.days.map((day) => {
@@ -491,6 +513,7 @@ function TaskCompletionMap({ quests }: { quests: Quest[] }) {
         <div className="activity-months">{weeks.map((week) => <span key={week.key}>{week.month}</span>)}</div>
       </div>
     </div>
+    {quests.recent.length > 0 && <div className="recent-footprints"><small>最近留下的足迹</small><div>{quests.recent.slice(0, 3).map((record) => <span key={record.id}><i>✓</i><b>{record.title}</b><time>{new Date(record.completedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></span>)}</div></div>}
     <div className="activity-legend"><span>完成强度</span><small>少</small>{[0,1,2,3,4].map((level) => <i key={level} className={`level-${level}`} />)}<small>多</small></div>
   </section>;
 }
@@ -518,7 +541,11 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
   const [selectedQuestIds, setSelectedQuestIds] = useState<number[]>([]);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
-  const allQuests = data.quests;
+  const allQuests = Object.assign([...data.quests], {
+    activity: data.questActivity,
+    total: data.questCompletionTotal,
+    recent: data.recentQuestCompletions,
+  }) as QuestActivityFeed;
   const boardQuests = todayRelevantQuests(allQuests);
   data = { ...data, quests: boardQuests };
   const done = boardQuests.filter((quest) => Boolean(quest.done)).length;
@@ -636,9 +663,9 @@ function Focus({ data, timer, running, setRunning, toggleRunning, setTimer, focu
 }) {
   function choose(minutes: number) { if (running) return; setFocusMinutes(minutes); setTimer(minutes * 60); }
   const ambientOptions: { key: Exclude<AmbientSound, "none">; icon: string; name: string; note: string }[] = [
-    { key: "rain", icon: "☂", name: "星雨", note: "细密雨幕" },
-    { key: "fire", icon: "♨", name: "篝火", note: "低柔炉火" },
-    { key: "ocean", icon: "≈", name: "潮汐", note: "缓慢海浪" },
+    { key: "rain", icon: "☂", name: "星雨", note: "近窗细雨 · 偶有雨滴" },
+    { key: "fire", icon: "♨", name: "篝火", note: "木柴爆裂 · 炉火低鸣" },
+    { key: "ocean", icon: "≈", name: "潮汐", note: "远近浪涌 · 泡沫回落" },
   ];
   const alertOptions: { key: FocusAlertMode; icon: string; name: string }[] = [
     { key: "both", icon: "✦", name: "弹窗 + 提示音" },
@@ -659,7 +686,7 @@ const catalog = [
 function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
   const owned = new Map(data.inventory.map(i => [i.item_key, i.quantity]));
   const achievements = [
-    { icon:"✦", name:"初见之章", note:"完成第一个任务", unlocked:data.quests.some(q=>q.done) },
+    { icon:"✦", name:"初见之章", note:"完成第一个任务", unlocked:data.questCompletionTotal>0 },
     { icon:"◷", name:"静心之证", note:"累计专注 60 分钟", unlocked:data.user.focusMinutes>=60 },
     { icon:"♙", name:"同行契约", note:"加入一个五人小组", unlocked:Boolean(data.team) },
     { icon:"☼", name:"引路星辉", note:"成功邀请一位好友", unlocked:data.user.referralCount>0 },
