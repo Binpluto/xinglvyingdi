@@ -110,6 +110,7 @@ const sortQuests = (quests: Quest[]) => {
     || right.id - left.id,
   );
 };
+const taskActivityLevel = (count: number) => count <= 0 ? 0 : count === 1 ? 1 : count === 2 ? 2 : count === 3 ? 3 : 4;
 
 type FocusAlertMode = "both" | "popup" | "sound" | "silent";
 type AmbientSound = "rain" | "fire" | "ocean" | "none";
@@ -503,18 +504,19 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
       <div><strong>{completionCounts.size}</strong><span>活跃天数</span></div>
       <div><strong>{streak}</strong><span>连续天数</span></div>
     </div>
+    <p className="activity-scale-note">每格代表一天 · 完成任务越多，格子颜色越深</p>
     <div className="activity-scroll" ref={activityScrollRef}>
       <div className="activity-chart">
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>
         <div className="activity-weeks">{weeks.map((week) => <div className="activity-week" key={week.key}>{week.days.map((day) => {
-          const intensity = day.count === 0 ? 0 : Math.min(4, day.count);
-          return <span key={day.key} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务`} aria-label={`${day.label}，完成 ${day.count} 项任务`} role="img" />;
+          const intensity = taskActivityLevel(day.count);
+          return <span key={day.key} data-count={day.count} data-intensity={intensity} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务 · 强度 ${intensity}/4`} aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`} role="img" />;
         })}</div>)}</div>
         <div className="activity-months">{weeks.map((week) => <span key={week.key}>{week.month}</span>)}</div>
       </div>
     </div>
     {quests.recent.length > 0 && <div className="recent-footprints"><small>最近留下的足迹</small><div>{quests.recent.slice(0, 3).map((record) => <span key={record.id}><i>✓</i><b>{record.title}</b><time>{new Date(record.completedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></span>)}</div></div>}
-    <div className="activity-legend"><span>完成强度</span><small>少</small>{[0,1,2,3,4].map((level) => <i key={level} className={`level-${level}`} />)}<small>多</small></div>
+    <div className="activity-legend"><span>每日完成量</span>{["0","1","2","3","4+"].map((label, level) => <span className="activity-legend-step" key={label}><i className={`level-${level}`} /><small>{label}</small></span>)}</div>
   </section>;
 }
 

@@ -222,6 +222,7 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .task-activity-stats strong,.task-activity-stats span{display:block}
 .task-activity-stats strong{font:500 29px Georgia,serif;line-height:1;color:#2e7d79}
 .task-activity-stats span{margin-top:5px;color:#87979c;font:8px "PingFang SC",sans-serif}
+.activity-scale-note{margin:-7px 0 10px;color:#809497;font:8px "PingFang SC",sans-serif}
 .activity-scroll{padding-bottom:3px;overflow-x:auto;scrollbar-width:thin;scrollbar-color:rgba(77,132,127,.25) transparent}
 .activity-chart{min-width:650px;display:grid;grid-template-columns:22px 1fr;grid-template-rows:auto 18px;gap:6px 8px}
 .activity-weekdays{display:grid;grid-template-rows:repeat(7,14px);gap:5px;color:#91a09f;font:7px/14px "PingFang SC",sans-serif}
@@ -241,13 +242,14 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .recent-footprints i{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:#d5ecdf;color:#2e8a5b;font-style:normal}
 .recent-footprints b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#49656c;font-weight:500}
 .recent-footprints time{color:#8fa0a2;white-space:nowrap}
-.activity-legend{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:10px;color:#87989b;font:8px "PingFang SC",sans-serif}
+.activity-legend{display:flex;align-items:flex-end;justify-content:flex-end;gap:7px;margin-top:10px;color:#87989b;font:8px "PingFang SC",sans-serif}
 .activity-legend small{font:7px "PingFang SC",sans-serif}
 .activity-legend i{width:12px;height:12px;border-radius:3px;background:#e4e9e7}
+.activity-legend-step{display:grid;justify-items:center;gap:3px}
 .app-shell[class*="realm-"] .task-activity{border-color:var(--realm-line);background:color-mix(in srgb,var(--realm-surface) 88%,white)}
 .app-shell[class*="realm-"] .task-activity-stats strong{color:var(--realm-primary)}
 .app-shell[class*="realm-"] .recent-footprints i{background:color-mix(in srgb,var(--realm-primary) 18%,white);color:var(--realm-primary)}
-.app-shell[class*="realm-"] .activity-cell.level-1{background:color-mix(in srgb,var(--realm-primary) 28%,white)}.app-shell[class*="realm-"] .activity-cell.level-2{background:color-mix(in srgb,var(--realm-primary) 52%,white)}.app-shell[class*="realm-"] .activity-cell.level-3{background:color-mix(in srgb,var(--realm-primary) 76%,white)}.app-shell[class*="realm-"] .activity-cell.level-4{background:var(--realm-deep)}
+.app-shell[class*="realm-"] .activity-cell.level-1,.app-shell[class*="realm-"] .activity-legend i.level-1{background:color-mix(in srgb,var(--realm-primary) 28%,white)}.app-shell[class*="realm-"] .activity-cell.level-2,.app-shell[class*="realm-"] .activity-legend i.level-2{background:color-mix(in srgb,var(--realm-primary) 52%,white)}.app-shell[class*="realm-"] .activity-cell.level-3,.app-shell[class*="realm-"] .activity-legend i.level-3{background:color-mix(in srgb,var(--realm-primary) 76%,white)}.app-shell[class*="realm-"] .activity-cell.level-4,.app-shell[class*="realm-"] .activity-legend i.level-4{background:var(--realm-deep)}
 @media(max-width:700px){.task-activity{padding:18px 16px}.task-activity-heading h3{font-size:14px}.task-activity-stats{grid-template-columns:repeat(3,1fr);gap:7px}.task-activity-stats strong{font-size:24px}.activity-scroll{margin-right:-16px;padding-right:16px}}
 
 /* Quest batch selection */

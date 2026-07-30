@@ -237,11 +237,17 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /连续天数/);
   assert.match(client, /weekCount = 18/);
   assert.match(client, /activity-cell level-/);
+  assert.match(client, /taskActivityLevel/);
+  assert.match(client, /完成任务越多，格子颜色越深/);
+  assert.match(client, /\["0","1","2","3","4\+"\]/);
+  assert.match(client, /data-intensity/);
   assert.match(client, /云端永久记录/);
   assert.match(client, /最近留下的足迹/);
   assert.match(client, /scrollLeft = scroller\.scrollWidth/);
   assert.match(css, /\.task-activity/);
   assert.match(css, /\.activity-weeks/);
+  assert.match(css, /\.activity-legend-step/);
+  assert.match(css, /\.activity-legend i\.level-4/);
   assert.match(css, /\.recent-footprints/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
