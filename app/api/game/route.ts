@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { assertSameOrigin, getAppUser } from "../../app-auth";
+import { claimLevel100CalendarReward, getCalendarAccess } from "../../calendar-access";
 import { syncGoogleCalendar } from "../../google-calendar";
 
 type UserRow = {
@@ -381,6 +382,7 @@ async function dashboard(email: string) {
     ORDER BY unlocked DESC, updated_at
   `).bind(email).all();
   const realmGates = await realmGateStatuses(email);
+  const calendarAccess = await getCalendarAccess(email);
   const calendarConnection = await db.prepare(`
     SELECT google_email AS googleEmail, last_synced_at AS lastSyncedAt, connected_at AS connectedAt
     FROM google_calendar_connections WHERE user_email = ?
@@ -405,6 +407,7 @@ async function dashboard(email: string) {
     inventory: inventory.results,
     realmProgress: realmProgress.results,
     realmGates,
+    calendarAccess,
     calendarConnection: calendarConnection
       ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
       : { connected: false, googleEmail: null, lastSyncedAt: null },
@@ -546,6 +549,8 @@ export async function POST(request: Request) {
       const reward = type === "主线" ? 80 : type === "日常" ? 30 : 45;
       await db.prepare("INSERT INTO quests (user_email, title, detail, type, reward) VALUES (?, ?, ?, ?, ?)")
         .bind(identity.email, title, detail || "由旅行者亲自制定的冒险委托", type, reward).run();
+    } else if (body.action === "claimCalendarLevelReward") {
+      await claimLevel100CalendarReward(identity.email);
     } else if (body.action === "syncGoogleCalendar") {
       await syncGoogleCalendar(identity.email);
     } else if (body.action === "disconnectGoogleCalendar") {

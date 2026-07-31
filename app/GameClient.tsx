@@ -15,6 +15,7 @@ type RealmProgress = { realmId: string; completedRegions: number; unlocked: numb
 type RealmGateRequirement = { key: string; label: string; current: number; required: number; unit: string; met: boolean };
 type RealmGate = { realmId: string; sequence: number; unlocked: boolean; eligible: boolean; requirements: RealmGateRequirement[] };
 type CalendarConnection = { connected: boolean; googleEmail: string | null; lastSyncedAt: string | null };
+type CalendarAccess = { active: boolean; status: "free" | "trial" | "paid" | "level_reward" | "expired"; accessUntil: string | null; trialStartedAt: string | null; trialAvailable: boolean; daysRemaining: number; levelRewardEligible: boolean; levelRewardClaimed: boolean };
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
   quests: Quest[];
@@ -25,6 +26,7 @@ type GameData = {
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
   realmGates: RealmGate[];
+  calendarAccess: CalendarAccess;
   calendarConnection: CalendarConnection;
   team: Team | null;
   leaderboard: RankTeam[];
@@ -287,11 +289,16 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("calendar");
     if (!status) return;
-    notify(status === "connected" ? "Google 日历连接成功，任务已自动同步" : "Google 日历连接未完成，请重试");
+    const message = status === "connected" ? "Google 日历连接成功，任务已自动同步"
+      : status === "payment-success" ? "支付完成，星历通行证正在生效"
+      : status === "payment-cancelled" ? "已取消支付，未产生扣款"
+      : status === "configuration-error" ? "日历连接暂不可用，请稍后重试"
+      : "Google 日历连接未完成，请重试";
+    notify(message);
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
   useEffect(() => {
-    if (!data?.calendarConnection.connected) return;
+    if (!data?.calendarConnection.connected || !data.calendarAccess.active) return;
     const lastSync = data.calendarConnection.lastSyncedAt ? Date.parse(data.calendarConnection.lastSyncedAt) : 0;
     if (!lastSync || Date.now() - lastSync > 120000) {
       void act({ action: "syncGoogleCalendar" }, "Google 日历变动已同步");
@@ -300,7 +307,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       void act({ action: "syncGoogleCalendar" }, "Google 日历变动已同步");
     }, 120000);
     return () => window.clearInterval(interval);
-  }, [data?.calendarConnection.connected]);
+  }, [data?.calendarConnection.connected, data?.calendarAccess.active]);
 
   async function load() {
     const res = await fetch("/api/game");
@@ -454,6 +461,18 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
   const weekCount = 18;
   const completionCounts = new Map(quests.activity.map((day) => [day.date, Number(day.count)]));
   const activityScrollRef = useRef<HTMLDivElement | null>(null);
+  const [activityTooltip, setActivityTooltip] = useState<{ date: string; count: number; intensity: number; left: number; top: number } | null>(null);
+
+  const showActivityTooltip = (day: { label: string; count: number }, intensity: number, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    setActivityTooltip({
+      date: day.label,
+      count: day.count,
+      intensity,
+      left: Math.max(92, Math.min(window.innerWidth - 92, rect.left + rect.width / 2)),
+      top: rect.top - 9,
+    });
+  };
 
   const today = new Date();
   today.setHours(12, 0, 0, 0);
@@ -509,11 +528,27 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>
         <div className="activity-weeks">{weeks.map((week) => <div className="activity-week" key={week.key}>{week.days.map((day) => {
           const intensity = taskActivityLevel(day.count);
-          return <span key={day.key} data-date={day.key} data-count={day.count} data-intensity={intensity} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务 · 强度 ${intensity}/4`} aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`} role="img" />;
+          return <span
+            key={day.key}
+            data-date={day.key}
+            data-count={day.count}
+            data-intensity={intensity}
+            className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`}
+            aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`}
+            aria-describedby={activityTooltip?.date === day.label ? "activity-day-tooltip" : undefined}
+            role="img"
+            tabIndex={0}
+            onMouseEnter={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onMouseMove={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onMouseLeave={() => setActivityTooltip(null)}
+            onFocus={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onBlur={() => setActivityTooltip(null)}
+          />;
         })}</div>)}</div>
         <div className="activity-months">{weeks.map((week) => <span key={week.key}>{week.month}</span>)}</div>
       </div>
     </div>
+    {activityTooltip && <div id="activity-day-tooltip" className="activity-day-tooltip" role="tooltip" style={{ left: activityTooltip.left, top: activityTooltip.top }}><b>{activityTooltip.date}</b><span>完成 {activityTooltip.count} 项任务</span><small>颜色强度 {activityTooltip.intensity}/4</small></div>}
     {quests.recent.length > 0 && <div className="recent-footprints"><small>最近留下的足迹</small><div>{quests.recent.slice(0, 3).map((record) => <span key={record.id}><i>✓</i><b>{record.title}</b><time>{new Date(record.completedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></span>)}</div></div>}
     <div className="activity-legend"><span>每日完成量</span>{["0","1","2","3","4+"].map((label, level) => <span className="activity-legend-step" key={label}><i className={`level-${level}`} /><small>{label}</small></span>)}</div>
   </section>;
@@ -542,6 +577,7 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
   const [selectedQuestIds, setSelectedQuestIds] = useState<number[]>([]);
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [syncingGoogle, setSyncingGoogle] = useState(false);
+  const [checkoutPlan, setCheckoutPlan] = useState("");
   const allQuests = Object.assign([...data.quests], {
     activity: data.questActivity,
     total: data.questCompletionTotal,
@@ -638,8 +674,35 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
     if (!window.confirm("确定断开 Google 日历吗？已同步的任务会保留，但不再自动更新。")) return;
     await act({ action: "disconnectGoogleCalendar" }, "Google 日历已断开");
   }
+  async function purchaseCalendarPlan(plan: "week" | "month" | "year") {
+    setCheckoutPlan(plan);
+    const response = await fetch("/api/billing/calendar-checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan }),
+    });
+    const result = await response.json() as { checkoutUrl?: string; error?: string };
+    setCheckoutPlan("");
+    if (!response.ok || !result.checkoutUrl) {
+      window.alert(result.error || "暂时无法打开支付页面");
+      return;
+    }
+    window.location.href = result.checkoutUrl;
+  }
+  const accessLabel = data.calendarAccess.active
+    ? data.calendarAccess.status === "trial" ? `免费试用中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
+      : data.calendarAccess.status === "level_reward" ? `Lv.100 奖励生效中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
+      : `星历通行证生效中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
+    : data.calendarAccess.trialAvailable ? "尚未开始 7 天免费试用" : "通行证已到期 · 自动同步已暂停";
+  const accessUntilLabel = data.calendarAccess.accessUntil
+    ? new Date(data.calendarAccess.accessUntil).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })
+    : "连接 Google 日历时开始计时";
   const sourceLabel = (source: string) => source.startsWith("google") ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
-  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门</small><h3>一键连接 Google 日历</h3><p>授权后自动同步新增、改名、改时间和删除；网站打开时每两分钟检查一次变化。</p></div><span>◫</span></div>{data.calendarConnection.connected ? <div className="google-live-card connected"><span className="google-calendar-mark">G</span><div><small>Google Calendar 已连接</small><b>{data.calendarConnection.googleEmail || "主日历"}</b><em>{data.calendarConnection.lastSyncedAt ? `上次同步 ${new Date(data.calendarConnection.lastSyncedAt).toLocaleString("zh-CN")}` : "正在进行首次同步"}</em></div><button onClick={() => void syncGoogle()} disabled={syncingGoogle}>{syncingGoogle ? "同步中…" : "立即同步"}</button><button className="disconnect-google" onClick={() => void disconnectGoogle()}>断开</button></div> : <div className="google-live-card"><span className="google-calendar-mark">G</span><div><small>推荐方式 · 无需复制链接</small><b>连接你的 Google 主日历</b><em>仅请求只读权限，授权令牌加密保存在云端</em></div><a href="/api/google-calendar/connect">连接 Google 日历 →</a></div>}<div className="calendar-fallback-title"><span>其他日历或备用导入</span><i /></div><div className="provider-grid">{[
+  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门 · 实时绑定为付费权益</small><h3>连接并自动同步 Google 日历</h3><p>授权后每两分钟检查一次变化；普通任务与手动上传 ICS 永久免费，实时账号绑定需要星历通行证。</p></div><span>◫</span></div><div className={`calendar-membership-status ${data.calendarAccess.active ? "active" : "inactive"}`}><span>{data.calendarAccess.active ? "✦" : "◇"}</span><div><b>{accessLabel}</b><small>{data.calendarAccess.active ? `有效期至 ${accessUntilLabel}` : accessUntilLabel}</small></div>{data.calendarAccess.levelRewardEligible && <button onClick={() => void act({ action: "claimCalendarLevelReward" }, "恭喜获得一年星历通行证")}>领取 Lv.100 一年奖励</button>}</div><div className="calendar-pricing"><div className="calendar-pricing-intro"><div><small>星历通行证</small><b>先免费体验 7 天，再决定是否开通</b></div><span>不自动扣费 · 到期前可随时续期</span></div><div className="calendar-plan-grid">{[
+    { key: "week", name: "周卡", price: "HK$8", unit: "/ 7天", note: "短期冲刺与旅行安排" },
+    { key: "month", name: "月卡", price: "HK$20", unit: "/ 30天", note: "稳定使用 · 每天约 HK$0.67" },
+    { key: "year", name: "年卡", price: "HK$160", unit: "/ 365天", note: "推荐 · 比月卡节省约 34%" },
+  ].map((plan) => <article className={plan.key === "year" ? "calendar-plan recommended" : "calendar-plan"} key={plan.key}>{plan.key === "year" && <em>最划算</em>}<small>{plan.name}</small><div><b>{plan.price}</b><span>{plan.unit}</span></div><p>{plan.note}</p><button disabled={Boolean(checkoutPlan)} onClick={() => void purchaseCalendarPlan(plan.key as "week" | "month" | "year")}>{checkoutPlan === plan.key ? "正在前往支付…" : "选择套餐"}</button></article>)}</div><p className="calendar-trial-rule">由 Waffo 提供安全收款，均为一次性付款，不会自动续费。每个账号仅可试用一次；试用从首次连接 Google 日历时开始。Lv.100 奖励限领取一次，可与剩余通行证时长叠加。</p></div>{data.calendarConnection.connected ? <div className={`google-live-card connected${data.calendarAccess.active ? "" : " access-paused"}`}><span className="google-calendar-mark">G</span><div><small>Google Calendar 已连接</small><b>{data.calendarConnection.googleEmail || "主日历"}</b><em>{data.calendarAccess.active ? data.calendarConnection.lastSyncedAt ? `上次同步 ${new Date(data.calendarConnection.lastSyncedAt).toLocaleString("zh-CN")}` : "正在进行首次同步" : "通行证到期，自动同步已暂停；已导入任务继续保留"}</em></div><button onClick={() => void syncGoogle()} disabled={syncingGoogle || !data.calendarAccess.active}>{syncingGoogle ? "同步中…" : data.calendarAccess.active ? "立即同步" : "续费后同步"}</button><button className="disconnect-google" onClick={() => void disconnectGoogle()}>断开</button></div> : <div className="google-live-card"><span className="google-calendar-mark">G</span><div><small>{data.calendarAccess.trialAvailable ? "首次连接 · 自动开启 7 天试用" : data.calendarAccess.active ? "星历通行证已生效" : "需要开通星历通行证"}</small><b>连接你的 Google 主日历</b><em>仅请求只读权限，授权令牌加密保存在云端</em></div>{(data.calendarAccess.active || data.calendarAccess.trialAvailable) ? <a href="/api/google-calendar/connect">{data.calendarAccess.trialAvailable ? "免费试用并连接 →" : "连接 Google 日历 →"}</a> : <span className="calendar-locked-action">选择套餐后连接</span>}</div>}<div className="calendar-fallback-title"><span>免费工具 · 其他日历或备用导入</span><i /></div><div className="provider-grid">{[
     ["google","G","Google Calendar ICS","不授权账号时，可使用 iCal 格式的私密网址"],
     ["outlook","O","Outlook / Microsoft 365","使用“设置 → 共享日历 → 发布日历 → ICS”"],
     ["icloud","◆","Apple iCloud","将日历设为公开并复制 webcal 订阅链接"],

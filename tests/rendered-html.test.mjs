@@ -99,6 +99,51 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
   assert.match(migration, /google_oauth_states/);
 });
 
+test("gates live calendar binding behind a seven-day trial and paid passes", async () => {
+  const [client, access, connectRoute, checkoutRoute, webhookRoute, googleHelper, gameRoute, schema, migration, billingMigration] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/calendar-access.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/connect/route.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/calendar-checkout/route.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/waffo-webhook/route.ts", root), "utf8"),
+    readFile(new URL("app/google-calendar.ts", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0008_rapid_arachne.sql", root), "utf8"),
+    readFile(new URL("drizzle/0009_amusing_ender_wiggin.sql", root), "utf8"),
+  ]);
+
+  assert.match(client, /先免费体验 7 天/);
+  assert.match(client, /price: "HK\$8"/);
+  assert.match(client, /price: "HK\$20"/);
+  assert.match(client, /price: "HK\$160"/);
+  assert.match(client, /由 Waffo 提供安全收款/);
+  assert.match(client, /领取 Lv\.100 一年奖励/);
+  assert.match(client, /手动上传 ICS 永久免费/);
+  assert.match(access, /days: 7/);
+  assert.match(access, /days: 30/);
+  assert.match(access, /days: 365/);
+  assert.match(access, /365 \* DAY_MS/);
+  assert.match(access, /levelFromXp\(row\?\.xp \?\? 0\) >= 100/);
+  assert.match(connectRoute, /startTrial: true/);
+  assert.match(googleHelper, /requireCalendarAccess\(email\)/);
+  assert.match(gameRoute, /claimCalendarLevelReward/);
+  assert.match(checkoutRoute, /api\.waffo\.ai\/v1\/actions\/checkout\/create-session/);
+  assert.match(checkoutRoute, /productType: "onetime"/);
+  assert.match(checkoutRoute, /INSERT INTO calendar_checkout_orders/);
+  assert.match(webhookRoute, /order\.completed/);
+  assert.match(webhookRoute, /x-waffo-signature/);
+  assert.match(webhookRoute, /RSASSA-PKCS1-v1_5/);
+  assert.match(webhookRoute, /activatePaidCalendarPlan/);
+  assert.match(schema, /calendarEntitlements = sqliteTable\("calendar_entitlements"/);
+  assert.match(schema, /calendarPayments = sqliteTable\("calendar_payments"/);
+  assert.match(schema, /calendarCheckoutOrders = sqliteTable\("calendar_checkout_orders"/);
+  assert.match(migration, /CREATE TABLE `calendar_entitlements`/);
+  assert.match(migration, /CREATE TABLE `calendar_payments`/);
+  assert.match(billingMigration, /CREATE TABLE `calendar_checkout_orders`/);
+  assert.match(billingMigration, /calendar_checkout_orders_event_idx/);
+});
+
 test("applies a distinct full-site theme for every continent", async () => {
   const [client, css] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
@@ -242,6 +287,10 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /\["0","1","2","3","4\+"\]/);
   assert.match(client, /data-intensity/);
   assert.match(client, /data-date=\{day\.key\}/);
+  assert.match(client, /activity-day-tooltip/);
+  assert.match(client, /onMouseEnter=\{\(event\) => showActivityTooltip/);
+  assert.match(client, /完成 \{activityTooltip\.count\} 项任务/);
+  assert.match(client, /role="tooltip"/);
   assert.match(client, /day\.key\.endsWith\("-01"\)/);
   assert.match(client, /firstDayOfMonth \?\? \(weekIndex === 0 \? days\[0\] : null\)/);
   assert.doesNotMatch(client, /Number\(day\.key\.slice\(8, 10\)\) <= 7/);
@@ -252,6 +301,7 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(css, /\.activity-weeks/);
   assert.match(css, /\.activity-legend-step/);
   assert.match(css, /\.activity-legend i\.level-4/);
+  assert.match(css, /\.activity-day-tooltip/);
   assert.match(css, /\.recent-footprints/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
