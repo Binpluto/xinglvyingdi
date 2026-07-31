@@ -474,13 +474,12 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
         today: key === todayKey,
       };
     });
-    const firstVisibleMonthDay = days.find((day) => Number(day.key.slice(8, 10)) <= 7);
+    const firstDayOfMonth = days.find((day) => day.key.endsWith("-01"));
+    const monthMarker = firstDayOfMonth ?? (weekIndex === 0 ? days[0] : null);
     return {
       key: days[0].key,
       days,
-      month: weekIndex === 0
-        ? `${Number(days[0].key.slice(5, 7))}月`
-        : firstVisibleMonthDay ? `${Number(firstVisibleMonthDay.key.slice(5, 7))}月` : "",
+      month: monthMarker ? `${Number(monthMarker.key.slice(5, 7))}月` : "",
     };
   });
 
@@ -510,7 +509,7 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>
         <div className="activity-weeks">{weeks.map((week) => <div className="activity-week" key={week.key}>{week.days.map((day) => {
           const intensity = taskActivityLevel(day.count);
-          return <span key={day.key} data-count={day.count} data-intensity={intensity} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务 · 强度 ${intensity}/4`} aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`} role="img" />;
+          return <span key={day.key} data-date={day.key} data-count={day.count} data-intensity={intensity} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务 · 强度 ${intensity}/4`} aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`} role="img" />;
         })}</div>)}</div>
         <div className="activity-months">{weeks.map((week) => <span key={week.key}>{week.month}</span>)}</div>
       </div>

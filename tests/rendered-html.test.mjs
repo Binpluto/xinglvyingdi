@@ -241,6 +241,10 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /完成任务越多，格子颜色越深/);
   assert.match(client, /\["0","1","2","3","4\+"\]/);
   assert.match(client, /data-intensity/);
+  assert.match(client, /data-date=\{day\.key\}/);
+  assert.match(client, /day\.key\.endsWith\("-01"\)/);
+  assert.match(client, /firstDayOfMonth \?\? \(weekIndex === 0 \? days\[0\] : null\)/);
+  assert.doesNotMatch(client, /Number\(day\.key\.slice\(8, 10\)\) <= 7/);
   assert.match(client, /云端永久记录/);
   assert.match(client, /最近留下的足迹/);
   assert.match(client, /scrollLeft = scroller\.scrollWidth/);
