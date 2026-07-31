@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getAppUser } from "../../../app-auth";
+import { requireCalendarAccess } from "../../../calendar-access";
 import {
   encryptRefreshToken,
   exchangeAuthorizationCode,
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
   try {
     const identity = await getAppUser(request);
     if (!identity) throw new Error("登录状态已失效");
+    await requireCalendarAccess(identity.email);
     const url = new URL(request.url);
     const state = url.searchParams.get("state") || "";
     const code = url.searchParams.get("code") || "";

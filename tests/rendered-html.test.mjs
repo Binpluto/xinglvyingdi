@@ -99,6 +99,44 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
   assert.match(migration, /google_oauth_states/);
 });
 
+test("gates live calendar binding behind a seven-day trial and paid passes", async () => {
+  const [client, access, connectRoute, checkoutRoute, webhookRoute, googleHelper, gameRoute, schema, migration] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/calendar-access.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/connect/route.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/calendar-checkout/route.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/stripe-webhook/route.ts", root), "utf8"),
+    readFile(new URL("app/google-calendar.ts", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0008_rapid_arachne.sql", root), "utf8"),
+  ]);
+
+  assert.match(client, /先免费体验 7 天/);
+  assert.match(client, /price: "¥6\.9"/);
+  assert.match(client, /price: "¥18"/);
+  assert.match(client, /price: "¥148"/);
+  assert.match(client, /领取 Lv\.100 一年奖励/);
+  assert.match(client, /手动上传 ICS 永久免费/);
+  assert.match(access, /days: 7/);
+  assert.match(access, /days: 30/);
+  assert.match(access, /days: 365/);
+  assert.match(access, /365 \* DAY_MS/);
+  assert.match(access, /levelFromXp\(row\?\.xp \?\? 0\) >= 100/);
+  assert.match(connectRoute, /startTrial: true/);
+  assert.match(googleHelper, /requireCalendarAccess\(email\)/);
+  assert.match(gameRoute, /claimCalendarLevelReward/);
+  assert.match(checkoutRoute, /api\.stripe\.com\/v1\/checkout\/sessions/);
+  assert.match(checkoutRoute, /mode: "payment"/);
+  assert.match(webhookRoute, /checkout\.session\.completed/);
+  assert.match(webhookRoute, /constantTimeEqual/);
+  assert.match(webhookRoute, /INSERT OR IGNORE INTO calendar_payments/);
+  assert.match(schema, /calendarEntitlements = sqliteTable\("calendar_entitlements"/);
+  assert.match(schema, /calendarPayments = sqliteTable\("calendar_payments"/);
+  assert.match(migration, /CREATE TABLE `calendar_entitlements`/);
+  assert.match(migration, /CREATE TABLE `calendar_payments`/);
+});
+
 test("applies a distinct full-site theme for every continent", async () => {
   const [client, css] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),

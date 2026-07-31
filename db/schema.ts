@@ -128,3 +128,20 @@ export const googleOauthStates = sqliteTable("google_oauth_states", {
   expiresAt: text("expires_at").notNull(),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("google_oauth_states_expiry_idx").on(table.expiresAt)]);
+
+export const calendarEntitlements = sqliteTable("calendar_entitlements", {
+  userEmail: text("user_email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
+  trialStartedAt: text("trial_started_at"),
+  accessUntil: text("access_until"),
+  source: text("source"),
+  levelRewardClaimedAt: text("level_reward_claimed_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("calendar_entitlements_expiry_idx").on(table.accessUntil)]);
+
+export const calendarPayments = sqliteTable("calendar_payments", {
+  stripeEventId: text("stripe_event_id").primaryKey(),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  plan: text("plan").notNull(),
+  amountCnyFen: integer("amount_cny_fen").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [index("calendar_payments_user_idx").on(table.userEmail)]);
