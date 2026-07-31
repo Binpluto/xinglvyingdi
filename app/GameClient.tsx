@@ -454,6 +454,18 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
   const weekCount = 18;
   const completionCounts = new Map(quests.activity.map((day) => [day.date, Number(day.count)]));
   const activityScrollRef = useRef<HTMLDivElement | null>(null);
+  const [activityTooltip, setActivityTooltip] = useState<{ date: string; count: number; intensity: number; left: number; top: number } | null>(null);
+
+  const showActivityTooltip = (day: { label: string; count: number }, intensity: number, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    setActivityTooltip({
+      date: day.label,
+      count: day.count,
+      intensity,
+      left: Math.max(92, Math.min(window.innerWidth - 92, rect.left + rect.width / 2)),
+      top: rect.top - 9,
+    });
+  };
 
   const today = new Date();
   today.setHours(12, 0, 0, 0);
@@ -509,11 +521,27 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>
         <div className="activity-weeks">{weeks.map((week) => <div className="activity-week" key={week.key}>{week.days.map((day) => {
           const intensity = taskActivityLevel(day.count);
-          return <span key={day.key} data-date={day.key} data-count={day.count} data-intensity={intensity} className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`} title={`${day.label}：完成 ${day.count} 项任务 · 强度 ${intensity}/4`} aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`} role="img" />;
+          return <span
+            key={day.key}
+            data-date={day.key}
+            data-count={day.count}
+            data-intensity={intensity}
+            className={`activity-cell level-${intensity}${day.today ? " today" : ""}${day.future ? " future" : ""}`}
+            aria-label={`${day.label}，完成 ${day.count} 项任务，颜色强度 ${intensity}/4`}
+            aria-describedby={activityTooltip?.date === day.label ? "activity-day-tooltip" : undefined}
+            role="img"
+            tabIndex={0}
+            onMouseEnter={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onMouseMove={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onMouseLeave={() => setActivityTooltip(null)}
+            onFocus={(event) => showActivityTooltip(day, intensity, event.currentTarget)}
+            onBlur={() => setActivityTooltip(null)}
+          />;
         })}</div>)}</div>
         <div className="activity-months">{weeks.map((week) => <span key={week.key}>{week.month}</span>)}</div>
       </div>
     </div>
+    {activityTooltip && <div id="activity-day-tooltip" className="activity-day-tooltip" role="tooltip" style={{ left: activityTooltip.left, top: activityTooltip.top }}><b>{activityTooltip.date}</b><span>完成 {activityTooltip.count} 项任务</span><small>颜色强度 {activityTooltip.intensity}/4</small></div>}
     {quests.recent.length > 0 && <div className="recent-footprints"><small>最近留下的足迹</small><div>{quests.recent.slice(0, 3).map((record) => <span key={record.id}><i>✓</i><b>{record.title}</b><time>{new Date(record.completedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time></span>)}</div></div>}
     <div className="activity-legend"><span>每日完成量</span>{["0","1","2","3","4+"].map((label, level) => <span className="activity-legend-step" key={label}><i className={`level-${level}`} /><small>{label}</small></span>)}</div>
   </section>;

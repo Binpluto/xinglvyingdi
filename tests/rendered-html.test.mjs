@@ -242,6 +242,10 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /\["0","1","2","3","4\+"\]/);
   assert.match(client, /data-intensity/);
   assert.match(client, /data-date=\{day\.key\}/);
+  assert.match(client, /activity-day-tooltip/);
+  assert.match(client, /onMouseEnter=\{\(event\) => showActivityTooltip/);
+  assert.match(client, /完成 \{activityTooltip\.count\} 项任务/);
+  assert.match(client, /role="tooltip"/);
   assert.match(client, /day\.key\.endsWith\("-01"\)/);
   assert.match(client, /firstDayOfMonth \?\? \(weekIndex === 0 \? days\[0\] : null\)/);
   assert.doesNotMatch(client, /Number\(day\.key\.slice\(8, 10\)\) <= 7/);
@@ -252,6 +256,7 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(css, /\.activity-weeks/);
   assert.match(css, /\.activity-legend-step/);
   assert.match(css, /\.activity-legend i\.level-4/);
+  assert.match(css, /\.activity-day-tooltip/);
   assert.match(css, /\.recent-footprints/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
