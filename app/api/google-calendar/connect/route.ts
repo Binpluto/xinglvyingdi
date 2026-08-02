@@ -3,18 +3,22 @@ import { getAppUser } from "../../../app-auth";
 import { requireCalendarAccess } from "../../../calendar-access";
 import { googleAuthorizationUrl } from "../../../google-calendar";
 
-function stateToken() {
+function stateToken(syncFromDate: string) {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return `${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}.${syncFromDate}`;
 }
 
 export async function GET(request: Request) {
   try {
     const identity = await getAppUser(request);
     if (!identity) return Response.redirect(new URL("/", request.url));
-    const state = stateToken();
+    const requestedDate = new URL(request.url).searchParams.get("from") || "";
+    const syncFromDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? requestedDate
+      : new Date().toISOString().slice(0, 10);
+    const state = stateToken(syncFromDate);
     const authorizationUrl = googleAuthorizationUrl(request, state, identity.email);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM google_oauth_states WHERE expires_at <= ?").bind(new Date().toISOString()),

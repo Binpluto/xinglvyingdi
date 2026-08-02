@@ -99,6 +99,26 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
   assert.match(migration, /google_oauth_states/);
 });
 
+test("calendar synchronization imports only the sync date and future tasks", async () => {
+  const [client, helper, connectRoute, callbackRoute, gameRoute] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/google-calendar.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/connect/route.ts", root), "utf8"),
+    readFile(new URL("app/api/google-calendar/callback/route.ts", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+  ]);
+
+  assert.match(client, /\/api\/google-calendar\/connect\?from=/);
+  assert.match(client, /只同步当天及未来日程/);
+  assert.match(helper, /isOnOrAfterSyncDate/);
+  assert.match(helper, /googleQueryStart\(syncFromDate\)/);
+  assert.match(helper, /applyEvents\(email, changes\.events, syncFromDate\)/);
+  assert.doesNotMatch(helper, /Date\.now\(\) - 30 \* 86400000/);
+  assert.match(connectRoute, /stateToken\(syncFromDate\)/);
+  assert.match(callbackRoute, /syncGoogleCalendar\(identity\.email, syncFromDate\)/);
+  assert.match(gameRoute, /parseCalendar\(calendarText, rangeDays, body\.clientDate\)/);
+});
+
 test("gates live calendar binding behind a seven-day trial and paid passes", async () => {
   const [client, access, connectRoute, checkoutRoute, webhookRoute, googleHelper, gameRoute, schema, migration, billingMigration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),

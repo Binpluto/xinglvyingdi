@@ -108,11 +108,16 @@ function occurrenceDueAt(date: Date, allDay: boolean, utc: boolean) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function parseCalendar(ics: string, rangeDays: number) {
+function parseCalendar(ics: string, rangeDays: number, requestedStartDate?: string) {
   const unfolded = ics.replace(/\r?\n[ \t]/g, "");
   const blocks = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/g) ?? [];
   const now = new Date();
-  const startWindow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const requestedParts = /^\d{4}-\d{2}-\d{2}$/.test(requestedStartDate ?? "")
+    ? requestedStartDate!.split("-").map(Number)
+    : null;
+  const startWindow = requestedParts
+    ? new Date(requestedParts[0], requestedParts[1] - 1, requestedParts[2])
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endWindow = new Date(startWindow);
   endWindow.setDate(endWindow.getDate() + rangeDays);
   const output: CalendarEvent[] = [];
@@ -558,7 +563,7 @@ export async function POST(request: Request) {
     } else if (body.action === "claimCalendarLevelReward") {
       await claimLevel100CalendarReward(identity.email);
     } else if (body.action === "syncGoogleCalendar") {
-      await syncGoogleCalendar(identity.email);
+      await syncGoogleCalendar(identity.email, body.clientDate);
     } else if (body.action === "disconnectGoogleCalendar") {
       await db.prepare("DELETE FROM google_calendar_connections WHERE user_email = ?")
         .bind(identity.email).run();
@@ -582,7 +587,7 @@ export async function POST(request: Request) {
       if (!calendarText.includes("BEGIN:VCALENDAR")) {
         return Response.json({ error: "没有识别到有效的 .ics 日历内容" }, { status: 400 });
       }
-      const events = parseCalendar(calendarText, rangeDays);
+      const events = parseCalendar(calendarText, rangeDays, body.clientDate);
       if (!events.length) {
         return Response.json({ error: `未来 ${rangeDays} 天没有可导入的日程` }, { status: 400 });
       }

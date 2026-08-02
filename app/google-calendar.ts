@@ -158,6 +158,22 @@ function eventDueAt(event: GoogleEvent) {
   return event.start?.dateTime || event.start?.date || "";
 }
 
+function validSyncDate(value?: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value ?? "")
+    ? value!
+    : new Date().toISOString().slice(0, 10);
+}
+
+function isOnOrAfterSyncDate(dueAt: string, syncFromDate: string) {
+  return dueAt.slice(0, 10) >= syncFromDate;
+}
+
+function googleQueryStart(syncFromDate: string) {
+  const date = new Date(`${syncFromDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString();
+}
+
 function eventDetail(event: GoogleEvent) {
   const dueAt = eventDueAt(event);
   const moment = dueAt && dueAt.length > 10 ? new Date(dueAt) : null;
@@ -169,7 +185,7 @@ function eventDetail(event: GoogleEvent) {
   return [time, event.location, event.description].filter(Boolean).join(" · ").slice(0, 180) || "来自 Google 日历的同步日程";
 }
 
-async function applyEvents(email: string, events: GoogleEvent[]) {
+async function applyEvents(email: string, events: GoogleEvent[], syncFromDate: string) {
   const statements = events.flatMap((event) => {
     if (!event.id) return [];
     if (event.status === "cancelled") {
@@ -178,7 +194,7 @@ async function applyEvents(email: string, events: GoogleEvent[]) {
       `).bind(email, event.id)];
     }
     const dueAt = eventDueAt(event);
-    if (!dueAt) return [];
+    if (!dueAt || !isOnOrAfterSyncDate(dueAt, syncFromDate)) return [];
     return [runtime().DB.prepare(`
       INSERT INTO quests (user_email, title, detail, type, reward, source, due_at, external_id)
       VALUES (?, ?, ?, '日常', 30, 'google-sync', ?, ?)
@@ -193,7 +209,7 @@ async function applyEvents(email: string, events: GoogleEvent[]) {
   }
 }
 
-async function fetchChanges(token: string, syncToken: string | null) {
+async function fetchChanges(token: string, syncToken: string | null, syncFromDate: string) {
   const events: GoogleEvent[] = [];
   let pageToken = "";
   let nextSyncToken = "";
@@ -205,7 +221,7 @@ async function fetchChanges(token: string, syncToken: string | null) {
     });
     if (syncToken) query.set("syncToken", syncToken);
     else {
-      query.set("timeMin", new Date(Date.now() - 30 * 86400000).toISOString());
+      query.set("timeMin", googleQueryStart(syncFromDate));
       query.set("timeMax", new Date(Date.now() + 180 * 86400000).toISOString());
     }
     if (pageToken) query.set("pageToken", pageToken);
@@ -222,22 +238,23 @@ async function fetchChanges(token: string, syncToken: string | null) {
   return { invalidSyncToken: false, events, nextSyncToken };
 }
 
-export async function syncGoogleCalendar(email: string) {
+export async function syncGoogleCalendar(email: string, requestedSyncDate?: string) {
   await requireCalendarAccess(email);
+  const syncFromDate = validSyncDate(requestedSyncDate);
   const connection = await runtime().DB.prepare(`
     SELECT user_email, refresh_token, google_email, sync_token, last_synced_at
     FROM google_calendar_connections WHERE user_email = ?
   `).bind(email).first<ConnectionRow>();
   if (!connection) throw new Error("请先连接 Google 日历");
   const token = await accessToken(await decryptRefreshToken(connection.refresh_token, email));
-  let changes = await fetchChanges(token, connection.sync_token);
+  let changes = await fetchChanges(token, connection.sync_token, syncFromDate);
   if (changes.invalidSyncToken) {
     await runtime().DB.prepare(`
       DELETE FROM quests WHERE user_email = ? AND source = 'google-sync' AND completed = 0
     `).bind(email).run();
-    changes = await fetchChanges(token, null);
+    changes = await fetchChanges(token, null, syncFromDate);
   }
-  await applyEvents(email, changes.events);
+  await applyEvents(email, changes.events, syncFromDate);
   await runtime().DB.prepare(`
     UPDATE google_calendar_connections
     SET sync_token = ?, last_synced_at = CURRENT_TIMESTAMP

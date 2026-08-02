@@ -24,6 +24,7 @@ export async function GET(request: Request) {
     `).bind(state, new Date().toISOString()).first<{ user_email: string }>();
     await env.DB.prepare("DELETE FROM google_oauth_states WHERE state = ?").bind(state).run();
     if (!savedState || savedState.user_email !== identity.email) throw new Error("授权请求已过期");
+    const syncFromDate = state.match(/\.(\d{4}-\d{2}-\d{2})$/)?.[1];
     const tokens = await exchangeAuthorizationCode(request, code);
     const googleEmail = await googleCalendarIdentity(tokens.access_token!);
     await env.DB.prepare(`
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
         last_synced_at = NULL,
         connected_at = CURRENT_TIMESTAMP
     `).bind(identity.email, await encryptRefreshToken(tokens.refresh_token!, identity.email), googleEmail).run();
-    await syncGoogleCalendar(identity.email);
+    await syncGoogleCalendar(identity.email, syncFromDate);
     returnUrl.searchParams.set("calendar", "connected");
   } catch {
     returnUrl.searchParams.set("calendar", "error");
