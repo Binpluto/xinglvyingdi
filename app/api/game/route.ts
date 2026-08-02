@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { assertSameOrigin, getAppUser } from "../../app-auth";
 import { claimLevel100CalendarReward, getCalendarAccess } from "../../calendar-access";
 import { syncGoogleCalendar } from "../../google-calendar";
+import { getPremiumProgram, updatePremiumFreeSlots } from "../../premium-access";
 
 type UserRow = {
   email: string;
@@ -383,6 +384,7 @@ async function dashboard(email: string) {
   `).bind(email).all();
   const realmGates = await realmGateStatuses(email);
   const calendarAccess = await getCalendarAccess(email);
+  const premiumProgram = await getPremiumProgram(email);
   const calendarConnection = await db.prepare(`
     SELECT google_email AS googleEmail, last_synced_at AS lastSyncedAt, connected_at AS connectedAt
     FROM google_calendar_connections WHERE user_email = ?
@@ -408,6 +410,7 @@ async function dashboard(email: string) {
     realmProgress: realmProgress.results,
     realmGates,
     calendarAccess,
+    premiumProgram,
     calendarConnection: calendarConnection
       ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
       : { connected: false, googleEmail: null, lastSyncedAt: null },
@@ -451,10 +454,13 @@ export async function POST(request: Request) {
       regionIndex?: number;
       criteriaConfirmed?: number[];
       clientDate?: string;
+      premiumEmails?: string[];
     };
     const db = env.DB;
 
-    if (body.action === "completeRealmTask") {
+    if (body.action === "updatePremiumFreeSlots") {
+      await updatePremiumFreeSlots(identity.email, Array.isArray(body.premiumEmails) ? body.premiumEmails : []);
+    } else if (body.action === "completeRealmTask") {
       const realmId = body.realmId ?? "";
       const rule = realmRules[realmId];
       if (!rule) return Response.json({ error: "大陆不存在" }, { status: 404 });

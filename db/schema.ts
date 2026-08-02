@@ -160,3 +160,10 @@ export const calendarCheckoutOrders = sqliteTable("calendar_checkout_orders", {
   index("calendar_checkout_orders_user_idx").on(table.userEmail),
   uniqueIndex("calendar_checkout_orders_event_idx").on(table.providerEventId),
 ]);
+
+export const premiumFreeSlots = sqliteTable("premium_free_slots", {
+  slotNumber: integer("slot_number").primaryKey(),
+  userEmail: text("user_email"),
+  assignedAt: text("assigned_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [uniqueIndex("premium_free_slots_email_idx").on(table.userEmail)]);

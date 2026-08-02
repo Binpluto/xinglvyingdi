@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { assertSameOrigin, getAppUser } from "../../../app-auth";
-import { calendarPlans, type CalendarPlanKey } from "../../../calendar-access";
+import { calendarPlans, getCalendarAccess, type CalendarPlanKey } from "../../../calendar-access";
 
 type BillingEnv = {
   WAFFO_STORE_SLUG?: string;
@@ -24,6 +24,9 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const identity = await getAppUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
+    if ((await getCalendarAccess(identity.email)).status === "founder") {
+      return Response.json({ error: "创始免费账户已解锁全部付费功能，无需购买" }, { status: 400 });
+    }
     const { plan } = await request.json() as { plan?: CalendarPlanKey };
     if (!plan || !calendarPlans[plan]) return Response.json({ error: "请选择有效套餐" }, { status: 400 });
     const billing = env as unknown as BillingEnv;

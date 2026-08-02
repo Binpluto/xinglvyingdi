@@ -15,7 +15,8 @@ type RealmProgress = { realmId: string; completedRegions: number; unlocked: numb
 type RealmGateRequirement = { key: string; label: string; current: number; required: number; unit: string; met: boolean };
 type RealmGate = { realmId: string; sequence: number; unlocked: boolean; eligible: boolean; requirements: RealmGateRequirement[] };
 type CalendarConnection = { connected: boolean; googleEmail: string | null; lastSyncedAt: string | null };
-type CalendarAccess = { active: boolean; status: "free" | "trial" | "paid" | "level_reward" | "expired"; accessUntil: string | null; trialStartedAt: string | null; trialAvailable: boolean; daysRemaining: number; levelRewardEligible: boolean; levelRewardClaimed: boolean };
+type CalendarAccess = { active: boolean; status: "free" | "founder" | "trial" | "paid" | "level_reward" | "expired"; accessUntil: string | null; trialStartedAt: string | null; trialAvailable: boolean; daysRemaining: number; levelRewardEligible: boolean; levelRewardClaimed: boolean };
+type PremiumProgram = { isAdmin: boolean; isFreeMember: boolean; maxSlots: number; occupiedSlots: number; slots: Array<{ slot: number; email: string | null }> };
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
   quests: Quest[];
@@ -28,6 +29,7 @@ type GameData = {
   realmGates: RealmGate[];
   calendarAccess: CalendarAccess;
   calendarConnection: CalendarConnection;
+  premiumProgram: PremiumProgram;
   team: Team | null;
   leaderboard: RankTeam[];
 };
@@ -554,6 +556,20 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
   </section>;
 }
 
+function PremiumSlotManager({ program, act }: { program: PremiumProgram; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+  const [emails, setEmails] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setEmails(Array.from({ length: program.maxSlots }, (_, index) => program.slots[index]?.email || ""));
+  }, [program.maxSlots, program.occupiedSlots, program.slots]);
+  async function save() {
+    setSaving(true);
+    await act({ action: "updatePremiumFreeSlots", premiumEmails: emails }, "创始免费名额已更新");
+    setSaving(false);
+  }
+  return <section className="premium-slot-manager"><div className="premium-slot-heading"><div><small>管理员专属 · 创始体验计划</small><b>管理 5 个永久免费名额</b></div><span>{program.occupiedSlots}/{program.maxSlots} 已使用</span></div><p>名额按照邮箱识别；对方以后使用相同邮箱注册，也会自动获得全部付费功能。</p><div className="premium-slot-grid">{Array.from({ length: program.maxSlots }, (_, index) => <label key={index}><span>名额 {index + 1}{index === 0 ? " · 管理员" : ""}</span><input type="email" value={emails[index] || ""} disabled={index === 0} placeholder={index === 0 ? "管理员固定名额" : "填写免费账户邮箱"} onChange={(event) => setEmails((current) => current.map((email, emailIndex) => emailIndex === index ? event.target.value : email))} /></label>)}</div><button disabled={saving} onClick={() => void save()}>{saving ? "保存中…" : "保存免费名额"}</button></section>;
+}
+
 function QuestBoard({ data, done: _allDone, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; compact?: boolean }) {
   const [filter, setFilter] = useState("全部");
   const [creating, setCreating] = useState(false);
@@ -690,15 +706,16 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
     window.location.href = result.checkoutUrl;
   }
   const accessLabel = data.calendarAccess.active
-    ? data.calendarAccess.status === "trial" ? `免费试用中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
+    ? data.calendarAccess.status === "founder" ? "创始免费名额 · 全部付费功能已解锁"
+      : data.calendarAccess.status === "trial" ? `免费试用中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
       : data.calendarAccess.status === "level_reward" ? `Lv.100 奖励生效中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
       : `星历通行证生效中 · 剩余 ${data.calendarAccess.daysRemaining} 天`
     : data.calendarAccess.trialAvailable ? "尚未开始 7 天免费试用" : "通行证已到期 · 自动同步已暂停";
   const accessUntilLabel = data.calendarAccess.accessUntil
     ? new Date(data.calendarAccess.accessUntil).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })
-    : "连接 Google 日历时开始计时";
+    : data.calendarAccess.status === "founder" ? "永久有效 · 无需续费" : "连接 Google 日历时开始计时";
   const sourceLabel = (source: string) => source.startsWith("google") ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
-  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门 · 实时绑定为付费权益</small><h3>连接并自动同步 Google 日历</h3><p>授权后每两分钟检查一次变化；普通任务与手动上传 ICS 永久免费，实时账号绑定需要星历通行证。</p></div><span>◫</span></div><div className={`calendar-membership-status ${data.calendarAccess.active ? "active" : "inactive"}`}><span>{data.calendarAccess.active ? "✦" : "◇"}</span><div><b>{accessLabel}</b><small>{data.calendarAccess.active ? `有效期至 ${accessUntilLabel}` : accessUntilLabel}</small></div>{data.calendarAccess.levelRewardEligible && <button onClick={() => void act({ action: "claimCalendarLevelReward" }, "恭喜获得一年星历通行证")}>领取 Lv.100 一年奖励</button>}</div><div className="calendar-pricing"><div className="calendar-pricing-intro"><div><small>星历通行证</small><b>先免费体验 7 天，再决定是否开通</b></div><span>不自动扣费 · 到期前可随时续期</span></div><div className="calendar-plan-grid">{[
+  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => setCalendarOpen(!calendarOpen)}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门 · 实时绑定为付费权益</small><h3>连接并自动同步 Google 日历</h3><p>授权后每两分钟检查一次变化；普通任务与手动上传 ICS 永久免费，实时账号绑定需要星历通行证。</p></div><span>◫</span></div><div className={`calendar-membership-status ${data.calendarAccess.active ? "active" : "inactive"}`}><span>{data.calendarAccess.active ? "✦" : "◇"}</span><div><b>{accessLabel}</b><small>{data.calendarAccess.active ? `有效期至 ${accessUntilLabel}` : accessUntilLabel}</small></div>{data.calendarAccess.levelRewardEligible && <button onClick={() => void act({ action: "claimCalendarLevelReward" }, "恭喜获得一年星历通行证")}>领取 Lv.100 一年奖励</button>}</div>{data.premiumProgram.isFreeMember && <section className="premium-free-summary"><span>✦</span><div><small>创始体验账户</small><b>全部付费功能永久免费</b><p>无需购买套餐，当前及后续付费功能都会直接解锁。</p></div></section>}{data.premiumProgram.isAdmin && <PremiumSlotManager program={data.premiumProgram} act={act} />}<div className={data.premiumProgram.isFreeMember ? "calendar-pricing premium-hidden" : "calendar-pricing"}><div className="calendar-pricing-intro"><div><small>星历通行证</small><b>先免费体验 7 天，再决定是否开通</b></div><span>不自动扣费 · 到期前可随时续期</span></div><div className="calendar-plan-grid">{[
     { key: "week", name: "周卡", price: "HK$8", unit: "/ 7天", note: "短期冲刺与旅行安排" },
     { key: "month", name: "月卡", price: "HK$20", unit: "/ 30天", note: "稳定使用 · 每天约 HK$0.67" },
     { key: "year", name: "年卡", price: "HK$160", unit: "/ 365天", note: "推荐 · 比月卡节省约 34%" },

@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getPremiumProgram } from "./premium-access";
 
 const DAY_MS = 86_400_000;
 const XP_PER_LEVEL = 100;
@@ -21,7 +22,7 @@ type AccessRow = {
 
 export type CalendarAccessStatus = {
   active: boolean;
-  status: "free" | "trial" | "paid" | "level_reward" | "expired";
+  status: "free" | "founder" | "trial" | "paid" | "level_reward" | "expired";
   accessUntil: string | null;
   trialStartedAt: string | null;
   trialAvailable: boolean;
@@ -44,7 +45,20 @@ async function accessRow(email: string) {
 }
 
 export async function getCalendarAccess(email: string): Promise<CalendarAccessStatus> {
+  const premium = await getPremiumProgram(email);
   const row = await accessRow(email);
+  if (premium.isFreeMember) {
+    return {
+      active: true,
+      status: "founder",
+      accessUntil: null,
+      trialStartedAt: row?.trial_started_at ?? null,
+      trialAvailable: false,
+      daysRemaining: 0,
+      levelRewardEligible: false,
+      levelRewardClaimed: Boolean(row?.level_reward_claimed_at),
+    };
+  }
   const now = Date.now();
   const accessUntilMs = row?.access_until ? Date.parse(row.access_until) : 0;
   const active = Number.isFinite(accessUntilMs) && accessUntilMs > now;

@@ -144,6 +144,36 @@ test("gates live calendar binding behind a seven-day trial and paid passes", asy
   assert.match(billingMigration, /calendar_checkout_orders_event_idx/);
 });
 
+test("grants and securely manages five founder complimentary premium slots", async () => {
+  const [client, access, premium, checkoutRoute, gameRoute, schema, migration, envExample] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/calendar-access.ts", root), "utf8"),
+    readFile(new URL("app/premium-access.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/calendar-checkout/route.ts", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0010_long_the_order.sql", root), "utf8"),
+    readFile(new URL(".env.example", root), "utf8"),
+  ]);
+
+  assert.match(client, /创始免费名额 · 全部付费功能已解锁/);
+  assert.match(client, /管理 5 个永久免费名额/);
+  assert.match(client, /updatePremiumFreeSlots/);
+  assert.match(access, /status: "founder"/);
+  assert.match(access, /getPremiumProgram/);
+  assert.match(premium, /const MAX_FREE_SLOTS = 5/);
+  assert.match(premium, /只有管理员可以管理创始免费名额/);
+  assert.match(premium, /同一个邮箱不能重复占用多个免费名额/);
+  assert.match(gameRoute, /premiumProgram/);
+  assert.match(gameRoute, /updatePremiumFreeSlots/);
+  assert.match(checkoutRoute, /创始免费账户已解锁全部付费功能，无需购买/);
+  assert.match(schema, /premiumFreeSlots = sqliteTable\("premium_free_slots"/);
+  assert.match(migration, /CREATE TABLE `premium_free_slots`/);
+  assert.match(migration, /premium_free_slots_email_idx/);
+  assert.match(envExample, /PREMIUM_ADMIN_EMAIL=/);
+  assert.match(envExample, /PREMIUM_FREE_EMAILS=/);
+});
+
 test("applies a distinct full-site theme for every continent", async () => {
   const [client, css] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
