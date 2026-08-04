@@ -406,3 +406,25 @@ test("celebrates every 50-level milestone without repeating dismissed popups", a
   assert.match(css, /milestone-arrive/);
   assert.match(css, /prefers-reduced-motion/);
 });
+
+test("camp energy changes with today's focus time and completed task types", async () => {
+  const [client, route, schema, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /const QUEST_ENERGY: Record<string, number> = \{ "主线": 20, "支线": 14, "日常": 10 \}/);
+  assert.match(client, /Math\.min\(40, Math\.floor\(data\.todayFocusMinutes \/ 2\)\)/);
+  assert.match(client, /weather-\$\{energy\.tone\}/);
+  assert.match(client, /专注 \{data\.todayFocusMinutes\} 分钟/);
+  assert.match(client, /完成 \{energy\.completedToday\} 项任务/);
+  assert.match(client, /--energy/);
+  assert.match(route, /SUM\(minutes\)/);
+  assert.match(route, /completed_date = \?/);
+  assert.match(route, /validClientDate\(body\.clientDate\)/);
+  assert.match(schema, /focus_sessions_daily_idx/);
+  assert.match(styles, /Dynamic camp energy weather/);
+  assert.match(styles, /conic-gradient\(var\(--energy-color\) var\(--energy\)/);
+});

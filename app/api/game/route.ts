@@ -320,8 +320,14 @@ async function syncRealmUnlock(email: string) {
   }
 }
 
-async function dashboard(email: string) {
+function validClientDate(value?: string | null) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? "")) return new Date().toISOString().slice(0, 10);
+  return value!;
+}
+
+async function dashboard(email: string, requestedClientDate?: string | null) {
   const db = env.DB;
+  const clientDate = validClientDate(requestedClientDate);
   await syncRealmUnlock(email);
   const user = await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<UserRow>();
   const quests = await db.prepare(`
@@ -377,6 +383,12 @@ async function dashboard(email: string) {
     SELECT id, minutes, created_at FROM focus_sessions
     WHERE user_email = ? ORDER BY id DESC LIMIT 10
   `).bind(email).all();
+  const todayFocus = await db.prepare(`
+    SELECT COALESCE(SUM(minutes), 0) AS minutes
+    FROM focus_sessions
+    WHERE user_email = ?
+      AND (completed_date = ? OR (completed_date IS NULL AND substr(created_at, 1, 10) = ?))
+  `).bind(email, clientDate, clientDate).first<{ minutes: number }>();
   const inventory = await db.prepare(`
     SELECT item_key, quantity, acquired_at FROM inventory
     WHERE user_email = ? ORDER BY acquired_at DESC
@@ -411,6 +423,7 @@ async function dashboard(email: string) {
     questCompletionTotal: questCompletionTotal?.count ?? 0,
     recentQuestCompletions: recentQuestCompletions.results,
     focusHistory: focusHistory.results,
+    todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
     inventory: inventory.results,
     realmProgress: realmProgress.results,
     realmGates,
@@ -428,7 +441,8 @@ export async function GET(request: Request) {
   try {
     const identity = await currentUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
-    return Response.json(await dashboard(identity.email));
+    const clientDate = new URL(request.url).searchParams.get("clientDate");
+    return Response.json(await dashboard(identity.email, clientDate));
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "读取失败" }, { status: 500 });
   }
@@ -604,11 +618,12 @@ export async function POST(request: Request) {
         `).bind(identity.email, event.title.slice(0, 80), detail || "来自日历的云端日程", provider, event.dueAt, event.uid);
       }));
       const imported = results.reduce((total, result) => total + Number(result.meta.changes || 0), 0);
-      return Response.json({ ...(await dashboard(identity.email)), lastImportCount: imported });
+      return Response.json({ ...(await dashboard(identity.email, body.clientDate)), lastImportCount: imported });
     } else if (body.action === "focus") {
       const minutes = Math.max(1, Math.min(180, Number(body.minutes) || 25));
       await db.batch([
-        db.prepare("INSERT INTO focus_sessions (user_email, minutes) VALUES (?, ?)").bind(identity.email, minutes),
+        db.prepare("INSERT INTO focus_sessions (user_email, minutes, completed_date) VALUES (?, ?, ?)")
+          .bind(identity.email, minutes, validClientDate(body.clientDate)),
         db.prepare("UPDATE users SET focus_minutes = focus_minutes + ?, xp = xp + ?, coins = coins + ? WHERE email = ?")
           .bind(minutes, minutes * 2, Math.ceil(minutes / 2), identity.email),
       ]);
@@ -667,7 +682,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "未知操作" }, { status: 400 });
     }
 
-    return Response.json(await dashboard(identity.email));
+    return Response.json(await dashboard(identity.email, body.clientDate));
   } catch (error) {
     const message = error instanceof Error ? error.message : "操作失败";
     return Response.json({ error: message.includes("UNIQUE") ? "该操作已经完成" : message }, { status: 500 });

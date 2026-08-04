@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
@@ -24,6 +24,7 @@ type GameData = {
   questCompletionTotal: number;
   recentQuestCompletions: QuestCompletionRecord[];
   focusHistory: FocusRecord[];
+  todayFocusMinutes: number;
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
   realmGates: RealmGate[];
@@ -115,6 +116,32 @@ const sortQuests = (quests: Quest[]) => {
   );
 };
 const taskActivityLevel = (count: number) => count <= 0 ? 0 : count === 1 ? 1 : count === 2 ? 2 : count === 3 ? 3 : 4;
+
+const QUEST_ENERGY: Record<string, number> = { "主线": 20, "支线": 14, "日常": 10 };
+function campEnergy(data: GameData) {
+  const today = localDateKey(new Date());
+  const completedToday = data.quests.filter((quest) => {
+    if (!quest.done || !quest.completedAt) return false;
+    const completedAt = new Date(quest.completedAt);
+    return !Number.isNaN(completedAt.getTime()) && localDateKey(completedAt) === today;
+  });
+  const taskEnergy = completedToday.reduce((total, quest) => total + (QUEST_ENERGY[quest.type] ?? 10), 0);
+  const focusEnergy = Math.min(40, Math.floor(data.todayFocusMinutes / 2));
+  const value = Math.min(100, 15 + taskEnergy + focusEnergy);
+  const main = completedToday.filter((quest) => quest.type === "主线").length;
+  const side = completedToday.filter((quest) => quest.type === "支线").length;
+  const daily = completedToday.filter((quest) => quest.type === "日常").length;
+  const weather = value >= 90
+    ? { tone: "aurora", icon: "✧", label: "极光满营", message: "能量已经抵达今日巅峰，营地上空出现了极光。" }
+    : value >= 70
+      ? { tone: "radiant", icon: "✦", label: "星辉灿烂", message: "连续行动汇成星辉，营地正闪耀着充沛能量。" }
+      : value >= 45
+        ? { tone: "sunny", icon: "☀", label: "晴光充盈", message: "专注与行动正在驱散云层，营地逐渐明亮。" }
+        : value >= 25
+          ? { tone: "breeze", icon: "◐", label: "微风渐晴", message: "今天的第一批能量已经抵达，再向前一步吧。" }
+          : { tone: "mist", icon: "☁", label: "星雾初醒", message: "营地仍笼罩着晨雾，开始一次专注或完成任务即可点亮。" };
+  return { value, taskEnergy, focusEnergy, completedToday: completedToday.length, main, side, daily, ...weather };
+}
 
 type FocusAlertMode = "both" | "popup" | "sound" | "silent";
 type AmbientSound = "rain" | "fire" | "ocean" | "none";
@@ -312,7 +339,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   }, [data?.calendarConnection.connected, data?.calendarAccess.active]);
 
   async function load() {
-    const res = await fetch("/api/game");
+    const res = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`);
     const json = await res.json();
     if (res.status === 401) {
       await onLogout();
@@ -432,6 +459,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
 }
 
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
+  const energy = campEnergy(data);
   const calendarAgenda = sortQuests(todayRelevantQuests(data.quests).filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
   const agenda = calendarAgenda.length ? calendarAgenda.map((quest) => ({
     time: quest.dueAt?.length === 10 ? "全天" : new Date(quest.dueAt!).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
@@ -454,7 +482,16 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
   </div><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
-    <section className="glass-card camp-weather"><div className="card-heading"><div><small>营地天气</small><h3>今日能量</h3></div><span>☀</span></div><div className="energy-ring"><strong>{Math.min(100, 58 + done * 9)}%</strong><small>状态晴朗</small></div><p>今日已经获得 <b>{data.quests.filter(q => q.done).reduce((n,q) => n + q.reward, 0)}</b> 点历练。完成下一项委托，可点亮连续行动星。</p></section>
+    <section className={`glass-card camp-weather weather-${energy.tone}`}>
+      <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>
+      <div className="energy-ring" style={{ "--energy": `${energy.value}%` } as CSSProperties}><strong>{energy.value}%</strong><small>{energy.label}</small><i aria-hidden="true" /></div>
+      <div className="energy-sources" aria-label="今日能量来源">
+        <span><i>◷</i><b>专注 {data.todayFocusMinutes} 分钟</b><em>+{energy.focusEnergy}</em></span>
+        <span><i>✦</i><b>完成 {energy.completedToday} 项任务</b><em>+{energy.taskEnergy}</em></span>
+      </div>
+      <div className="energy-task-legend"><span>主线 +20</span><span>支线 +14</span><span>日常 +10</span></div>
+      <p>{energy.message}</p>
+    </section>
     <section className="glass-card camp-achievement"><div className="card-heading"><div><small>最近获得</small><h3>冒险回响</h3></div><button className="text-button" onClick={() => setTab("行囊")}>打开行囊 →</button></div><div className="mini-badges"><div><span>✦</span><b>初心者</b><small>完成首个任务</small></div><div><span>◷</span><b>静心者</b><small>累计专注 60 分钟</small></div><div className={data.user.referralCount ? "" : "locked"}><span>♙</span><b>引路人</b><small>邀请一位好友</small></div></div></section>
   </div></>;
 }

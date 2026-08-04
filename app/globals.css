@@ -310,3 +310,22 @@ blockquote { margin:0;border-top:1px solid var(--line);padding-top:16px;text-ali
 .premium-slot-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.premium-slot-grid label{display:grid;gap:4px}.premium-slot-grid label:first-child{grid-column:1/-1}.premium-slot-grid span{color:#70888c;font:7px "PingFang SC",sans-serif}.premium-slot-grid input{width:100%;height:34px;border:1px solid rgba(85,133,134,.18);border-radius:8px;background:#fff;padding:0 10px;color:#335f68;font:9px "PingFang SC",sans-serif;outline:none}.premium-slot-grid input:focus{border-color:#3b8a82;box-shadow:0 0 0 3px rgba(59,138,130,.09)}.premium-slot-grid input:disabled{background:#e9f0ec;color:#718782}
 .premium-slot-manager>button{width:100%;height:35px;margin-top:11px;border:0;border-radius:9px;background:linear-gradient(135deg,#236d7a,#3e9588);color:#fff;font:9px "PingFang SC",sans-serif;cursor:pointer}.premium-slot-manager>button:disabled{opacity:.6;cursor:wait}
 @media(max-width:700px){.premium-slot-grid{grid-template-columns:1fr}.premium-slot-grid label:first-child{grid-column:auto}.premium-slot-heading{align-items:flex-start}.premium-free-summary{align-items:flex-start}}
+
+/* Dynamic camp energy weather */
+.camp-weather{--energy-color:#5fa69f;--energy-soft:rgba(95,166,159,.17);position:relative;overflow:hidden;transition:background .45s ease,border-color .45s ease,box-shadow .45s ease}
+.camp-weather::before{content:"";position:absolute;inset:-45% -35% auto;height:160px;background:radial-gradient(circle,var(--energy-soft),transparent 68%);pointer-events:none;transition:background .45s ease}
+.camp-weather.weather-mist{--energy-color:#7b95a3;--energy-soft:rgba(123,149,163,.18)}
+.camp-weather.weather-breeze{--energy-color:#55a49c;--energy-soft:rgba(85,164,156,.2)}
+.camp-weather.weather-sunny{--energy-color:#d3a44d;--energy-soft:rgba(230,188,89,.22)}
+.camp-weather.weather-radiant{--energy-color:#c98255;--energy-soft:rgba(217,139,78,.24);box-shadow:0 16px 45px rgba(191,126,62,.13)}
+.camp-weather.weather-aurora{--energy-color:#7063b2;--energy-soft:rgba(119,103,188,.25);box-shadow:0 16px 48px rgba(91,83,162,.17)}
+.weather-symbol{position:relative;color:var(--energy-color);font-size:21px;filter:drop-shadow(0 0 8px var(--energy-soft));animation:energy-weather-float 3.4s ease-in-out infinite}
+.camp-weather .energy-ring{--energy:0%;position:relative;width:122px;height:122px;margin:15px auto 13px;background:radial-gradient(circle,rgba(249,251,247,.96) 56%,transparent 57%),conic-gradient(var(--energy-color) var(--energy),rgba(218,229,225,.72) 0);box-shadow:0 8px 27px var(--energy-soft);transition:background .65s ease,box-shadow .45s ease}
+.camp-weather .energy-ring::before{content:"";position:absolute;inset:8px;border:1px solid var(--energy-soft);border-radius:50%;animation:energy-ring-breathe 2.8s ease-in-out infinite}
+.camp-weather .energy-ring strong{position:relative;color:var(--energy-color);transition:color .45s ease}.camp-weather .energy-ring small{position:relative}
+.camp-weather .energy-ring>i{position:absolute;left:50%;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--energy-color);box-shadow:0 0 0 5px var(--energy-soft),0 0 14px var(--energy-color);transform:translateX(-50%)}
+.energy-sources{display:grid;gap:6px;margin:2px 0 9px}.energy-sources>span{display:grid;grid-template-columns:19px 1fr auto;align-items:center;gap:5px;padding:6px 8px;border-radius:9px;background:rgba(255,255,255,.52);font:8px "PingFang SC",sans-serif}.energy-sources i{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;background:var(--energy-soft);color:var(--energy-color);font-style:normal}.energy-sources b{color:#667f86;font-weight:500}.energy-sources em{color:var(--energy-color);font-style:normal;font-weight:700}
+.energy-task-legend{display:flex;justify-content:center;gap:5px;margin-bottom:8px}.energy-task-legend span{padding:3px 5px;border-radius:6px;background:var(--energy-soft);color:#71858a;font:7px "PingFang SC",sans-serif}.camp-weather>p{position:relative;margin-bottom:0}
+@keyframes energy-weather-float{50%{transform:translateY(-3px) scale(1.07)}}@keyframes energy-ring-breathe{50%{transform:scale(.94);opacity:.45}}
+@media(max-width:700px){.camp-weather .energy-ring{width:112px;height:112px}.energy-sources{max-width:260px;margin-left:auto;margin-right:auto}}
+@media(prefers-reduced-motion:reduce){.weather-symbol,.camp-weather .energy-ring::before{animation:none}}

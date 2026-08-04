@@ -66,8 +66,9 @@ export const focusSessions = sqliteTable("focus_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
   minutes: integer("minutes").notNull(),
+  completedDate: text("completed_date"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-});
+}, (table) => [index("focus_sessions_daily_idx").on(table.userEmail, table.completedDate)]);
 
 export const teams = sqliteTable("teams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
