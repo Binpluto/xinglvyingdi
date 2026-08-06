@@ -353,6 +353,10 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(css, /\.activity-legend i\.level-4/);
   assert.match(css, /\.activity-day-tooltip/);
   assert.match(css, /\.recent-footprints/);
+  assert.match(css, /\.activity-weeks\{display:grid;grid-template-columns:repeat\(18,14px\)/);
+  assert.match(css, /\.activity-cell\{display:block;width:14px;height:14px/);
+  assert.match(css, /\.activity-months\{grid-column:2;display:grid;grid-template-columns:repeat\(18,14px\)/);
+  assert.match(css, /\.activity-chart\{width:max-content;min-width:0/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
   assert.match(route, /INSERT OR IGNORE INTO quest_completions/);
