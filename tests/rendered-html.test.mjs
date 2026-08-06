@@ -392,22 +392,35 @@ test("supports secure batch selection and deletion of quests", async () => {
   assert.match(route, /DELETE FROM quests WHERE user_email = \? AND id IN/);
 });
 
-test("celebrates every 50-level milestone without repeating dismissed popups", async () => {
+test("celebrates every 10 levels and awards downloadable certificates every 100 levels", async () => {
   const [client, css] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
 
   assert.match(client, /milestoneCopy/);
-  assert.match(client, /Math\.floor\(currentLevel \/ 50\) \* 50/);
-  assert.match(client, /reachedMilestone < 50/);
+  assert.match(client, /Math\.floor\(currentLevel \/ 10\) \* 10/);
+  assert.match(client, /reachedMilestone < 10/);
   assert.match(client, /reachedMilestone > lastCelebrated/);
   assert.match(client, /starcamp-level-milestone:/);
-  assert.match(client, /等级里程碑/);
-  assert.match(client, /下一里程碑/);
+  assert.match(client, /levelMilestone % 100 === 0/);
+  assert.match(client, /十级星光/);
+  assert.match(client, /百级荣誉庆典/);
+  assert.match(client, /下一次百级荣誉/);
   assert.match(client, /继续远征/);
   assert.match(client, /level-milestone-backdrop/);
+  assert.match(client, /downloadHonorCertificate/);
+  assert.match(client, /canvas\.width = 1600/);
+  assert.match(client, /星旅营地分享码/);
+  assert.match(client, /toBlob/);
+  assert.match(client, /荣誉奖状\.png/);
+  assert.match(client, /honorLevels/);
+  assert.match(client, /每 100 级解锁一张/);
   assert.match(css, /\.level-milestone-card/);
+  assert.match(css, /\.milestone-small/);
+  assert.match(css, /\.milestone-grand/);
+  assert.match(css, /\.honor-certificate-archive/);
+  assert.match(css, /\.milestone-certificate-download/);
   assert.match(css, /milestone-arrive/);
   assert.match(css, /prefers-reduced-motion/);
 });

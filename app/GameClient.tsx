@@ -78,14 +78,100 @@ const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊",
 const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
 const milestoneCopy = (level: number) => {
-  const chapters = [
+  const smallChapters = [
+    { title: "十阶星光", message: "又一段旅程被你稳稳走完。微小但持续的行动，正在改变远方。" },
+    { title: "营火更明", message: "每十级都是一次小小抵达，也是一份值得认真收藏的坚持。" },
+    { title: "步履有声", message: "你为目标留下了新的证据。请带着这束星光，继续向前。" },
+    { title: "新程已启", message: "成长没有被辜负，你已经站上下一段旅程的起点。" },
+  ];
+  const grandChapters = [
     { title: "星火成炬", message: "你已把一个个微小行动，汇聚成足以照亮前路的星光。" },
     { title: "远征不息", message: "真正的成长从不喧哗。你坚持走过的每一步，都已经成为实力。" },
     { title: "群星见证", message: "你不只抵达了更高等级，也成为同行者眼中可靠的光。" },
     { title: "传奇新章", message: "里程碑不是终点，而是你有能力继续创造更大世界的证明。" },
   ];
-  return chapters[(Math.floor(level / 50) - 1) % chapters.length];
+  return level % 100 === 0
+    ? grandChapters[(Math.floor(level / 100) - 1) % grandChapters.length]
+    : smallChapters[(Math.floor(level / 10) - 1) % smallChapters.length];
 };
+
+function downloadHonorCertificate(level: number, travelerName: string, shareCode: string) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1600;
+  canvas.height = 1120;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  const background = context.createLinearGradient(0, 0, 1600, 1120);
+  background.addColorStop(0, "#f8f3df");
+  background.addColorStop(.52, "#eff6eb");
+  background.addColorStop(1, "#dcece7");
+  context.fillStyle = background;
+  context.fillRect(0, 0, 1600, 1120);
+  const glow = context.createRadialGradient(800, 430, 30, 800, 430, 620);
+  glow.addColorStop(0, "rgba(236,198,103,.30)");
+  glow.addColorStop(1, "rgba(236,198,103,0)");
+  context.fillStyle = glow;
+  context.fillRect(0, 0, 1600, 1120);
+  context.strokeStyle = "#b99547";
+  context.lineWidth = 7;
+  context.strokeRect(52, 52, 1496, 1016);
+  context.strokeStyle = "rgba(37,103,111,.55)";
+  context.lineWidth = 2;
+  context.strokeRect(74, 74, 1452, 972);
+  context.textAlign = "center";
+  context.fillStyle = "#b58a38";
+  context.font = "28px Georgia, 'PingFang SC', serif";
+  context.fillText("✦  S T A R C A M P  ·  星 旅 营 地  ✦", 800, 160);
+  context.fillStyle = "#214f61";
+  context.font = "600 72px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  context.fillText("百级远征荣誉奖状", 800, 278);
+  context.fillStyle = "#7b8d8d";
+  context.font = "28px Georgia, serif";
+  context.fillText("CENTENNIAL EXPEDITION CERTIFICATE", 800, 332);
+  context.fillStyle = "#8a743e";
+  context.font = "25px 'PingFang SC', sans-serif";
+  context.fillText("谨授予旅行者", 800, 418);
+  context.fillStyle = "#183f52";
+  context.font = "600 62px 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  context.fillText((travelerName || "星旅旅行者").slice(0, 20), 800, 505);
+  context.fillStyle = "#526f74";
+  context.font = "30px 'PingFang SC', sans-serif";
+  context.fillText("以持续的专注、行动与勇气，完成百级远征里程碑", 800, 580);
+  const levelGradient = context.createLinearGradient(610, 0, 990, 0);
+  levelGradient.addColorStop(0, "#1d6172");
+  levelGradient.addColorStop(.5, "#b68735");
+  levelGradient.addColorStop(1, "#1d6172");
+  context.fillStyle = levelGradient;
+  context.font = "700 96px Georgia, serif";
+  context.fillText(`Lv. ${level}`, 800, 710);
+  context.fillStyle = "#8d733c";
+  context.font = "27px 'PingFang SC', sans-serif";
+  context.fillText(milestoneCopy(level).title, 800, 765);
+  context.strokeStyle = "rgba(181,138,56,.55)";
+  context.beginPath();
+  context.moveTo(280, 820);
+  context.lineTo(1320, 820);
+  context.stroke();
+  context.fillStyle = "#315e66";
+  context.font = "600 30px 'PingFang SC', sans-serif";
+  context.fillText(`星旅营地分享码：${shareCode}`, 800, 885);
+  context.fillStyle = "#7e8e8d";
+  context.font = "22px 'PingFang SC', sans-serif";
+  context.fillText("邀请好友输入分享码，与同行者共同开启人生冒险", 800, 928);
+  context.textAlign = "left";
+  context.fillText(`荣誉签发日：${new Date().toLocaleDateString("zh-CN")}`, 138, 1000);
+  context.textAlign = "right";
+  context.fillText(`证书编号：SC-${level}-${shareCode}`, 1462, 1000);
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `星旅营地-Lv${level}-荣誉奖状.png`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, "image/png");
+}
 const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const storedDateKey = (value: string) => {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -306,8 +392,8 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   useEffect(() => {
     if (!data) return;
     const currentLevel = levelFromXp(data.user.xp);
-    const reachedMilestone = Math.floor(currentLevel / 50) * 50;
-    if (reachedMilestone < 50) return;
+    const reachedMilestone = Math.floor(currentLevel / 10) * 10;
+    if (reachedMilestone < 10) return;
     const storageKey = `starcamp-level-milestone:${identity.email}`;
     const lastCelebrated = Number(window.localStorage.getItem(storageKey) || 0);
     if (reachedMilestone > lastCelebrated) {
@@ -403,6 +489,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const levelXp = xp % XP_PER_LEVEL;
   const activeRealm = continents.find((continent) => continent.id === activeRealmId) ?? null;
   const activeMilestoneCopy = levelMilestone ? milestoneCopy(levelMilestone) : null;
+  const isGrandMilestone = Boolean(levelMilestone && levelMilestone % 100 === 0);
 
   if (!data) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
@@ -453,7 +540,24 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void act({ action: "redeemInvite", code: inviteInput }, "邀请绑定成功，双方奖励已到账")}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
-      {levelMilestone && activeMilestoneCopy && <div className="level-milestone-backdrop"><div className="milestone-stars" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i key={index}>✦</i>)}</div><section className="level-milestone-card" role="dialog" aria-modal="true" aria-labelledby="level-milestone-title"><button className="level-milestone-close" aria-label="关闭等级里程碑提示" onClick={() => setLevelMilestone(null)}>×</button><div className="milestone-radiance" aria-hidden="true" /><div className="milestone-level"><span>Lv.</span><strong>{levelMilestone}</strong></div><small>LEVEL MILESTONE · 等级里程碑</small><h2 id="level-milestone-title">恭喜抵达 Lv.{levelMilestone}</h2><h3>{activeMilestoneCopy.title}</h3><p>{activeMilestoneCopy.message}</p><div className="milestone-next"><span>下一里程碑</span><b>Lv.{levelMilestone + 50}</b></div><button className="milestone-continue" onClick={() => setLevelMilestone(null)}>收下祝福 · 继续远征</button></section></div>}
+      {levelMilestone && activeMilestoneCopy && <div className={`level-milestone-backdrop ${isGrandMilestone ? "milestone-grand" : "milestone-small"}`}>
+        <div className="milestone-stars" aria-hidden="true">{Array.from({ length: isGrandMilestone ? 18 : 8 }, (_, index) => <i key={index}>✦</i>)}</div>
+        <section className="level-milestone-card" role="dialog" aria-modal="true" aria-labelledby="level-milestone-title">
+          <button className="level-milestone-close" aria-label="关闭等级庆祝提示" onClick={() => setLevelMilestone(null)}>×</button>
+          <div className="milestone-radiance" aria-hidden="true" />
+          <div className="milestone-level"><span>Lv.</span><strong>{levelMilestone}</strong></div>
+          <small>{isGrandMilestone ? "CENTENNIAL HONOR · 百级荣誉庆典" : "TEN-LEVEL STARLIGHT · 十级星光"}</small>
+          <h2 id="level-milestone-title">{isGrandMilestone ? "百级远征达成！" : `恭喜抵达 Lv.${levelMilestone}`}</h2>
+          <h3>{activeMilestoneCopy.title}</h3>
+          <p>{activeMilestoneCopy.message}</p>
+          {isGrandMilestone && <div className="milestone-honor-note"><span>♜</span><div><b>专属荣誉奖状已解锁</b><small>包含旅行者名称、百级等级与分享码 {data.user.inviteCode}</small></div></div>}
+          <div className="milestone-next"><span>{isGrandMilestone ? "下一次百级荣誉" : "下一次十级星光"}</span><b>Lv.{levelMilestone + (isGrandMilestone ? 100 : 10)}</b></div>
+          <div className="milestone-actions">
+            {isGrandMilestone && <button className="milestone-certificate-download" onClick={() => downloadHonorCertificate(levelMilestone, data.user.name, data.user.inviteCode)}>下载专属荣誉奖状</button>}
+            <button className="milestone-continue" onClick={() => setLevelMilestone(null)}>收下祝福 · 继续远征</button>
+          </div>
+        </section>
+      </div>}
     </main>
   );
 }
@@ -803,13 +907,15 @@ const catalog = [
 
 function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
   const owned = new Map(data.inventory.map(i => [i.item_key, i.quantity]));
+  const currentLevel = levelFromXp(data.user.xp);
+  const honorLevels = Array.from({ length: Math.floor(currentLevel / 100) }, (_, index) => (index + 1) * 100).reverse();
   const achievements = [
     { icon:"✦", name:"初见之章", note:"完成第一个任务", unlocked:data.questCompletionTotal>0 },
     { icon:"◷", name:"静心之证", note:"累计专注 60 分钟", unlocked:data.user.focusMinutes>=60 },
     { icon:"♙", name:"同行契约", note:"加入一个五人小组", unlocked:Boolean(data.team) },
     { icon:"☼", name:"引路星辉", note:"成功邀请一位好友", unlocked:data.user.referralCount>0 },
   ];
-  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就</small><h3>冒险徽章</h3></div><b>{achievements.filter(a=>a.unlocked).length}/{achievements.length} 已解锁</b></div><div className="achievement-grid">{achievements.map(a=><article key={a.name} className={a.unlocked ? "" : "locked"}><span>{a.icon}</span><b>{a.name}</b><small>{a.note}</small><em>{a.unlocked ? "已获得" : "未解锁"}</em></article>)}</div></section></div></section>;
+  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就</small><h3>冒险徽章</h3></div><b>{achievements.filter(a=>a.unlocked).length}/{achievements.length} 已解锁</b></div><div className="achievement-grid">{achievements.map(a=><article key={a.name} className={a.unlocked ? "" : "locked"}><span>{a.icon}</span><b>{a.name}</b><small>{a.note}</small><em>{a.unlocked ? "已获得" : "未解锁"}</em></article>)}</div><div className="honor-certificate-archive"><div className="honor-archive-heading"><div><small>百级远征荣誉</small><h3>专属荣誉奖状</h3></div><span>每 100 级解锁一张 · 包含分享码</span></div>{honorLevels.length ? <div className="honor-certificate-list">{honorLevels.map((honorLevel) => <article key={honorLevel}><span>♜</span><div><small>星旅营地 · 百级荣誉</small><b>Lv.{honorLevel} 远征奖状</b><em>分享码 {data.user.inviteCode}</em></div><button onClick={() => downloadHonorCertificate(honorLevel, data.user.name, data.user.inviteCode)}>下载 PNG</button></article>)}</div> : <div className="honor-certificate-locked"><span>⌾</span><div><b>首张荣誉奖状将在 Lv.100 解锁</b><small>当前 Lv.{currentLevel} · 继续完成任务与专注远征</small></div></div>}</div></section></div></section>;
 }
 
 function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
