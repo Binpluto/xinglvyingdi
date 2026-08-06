@@ -497,7 +497,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
 }
 
 function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
-  const weekCount = 18;
+  const weekCount = 53;
   const completionCounts = new Map(quests.activity.map((day) => [day.date, Number(day.count)]));
   const activityScrollRef = useRef<HTMLDivElement | null>(null);
   const [activityTooltip, setActivityTooltip] = useState<{ date: string; count: number; intensity: number; left: number; top: number } | null>(null);
@@ -561,7 +561,7 @@ function TaskCompletionMap({ quests }: { quests: QuestActivityFeed }) {
       <div><strong>{completionCounts.size}</strong><span>活跃天数</span></div>
       <div><strong>{streak}</strong><span>连续天数</span></div>
     </div>
-    <p className="activity-scale-note">每格代表一天 · 完成任务越多，格子颜色越深</p>
+    <p className="activity-scale-note">近一年冒险轨迹 · 每格代表一天 · 完成任务越多，格子颜色越深</p>
     <div className="activity-scroll" ref={activityScrollRef}>
       <div className="activity-chart">
         <div className="activity-weekdays"><span>一</span><span>三</span><span>五</span><span>日</span></div>

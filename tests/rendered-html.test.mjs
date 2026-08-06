@@ -330,7 +330,8 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(client, /累计完成/);
   assert.match(client, /活跃天数/);
   assert.match(client, /连续天数/);
-  assert.match(client, /weekCount = 18/);
+  assert.match(client, /weekCount = 53/);
+  assert.match(client, /近一年冒险轨迹/);
   assert.match(client, /activity-cell level-/);
   assert.match(client, /taskActivityLevel/);
   assert.match(client, /完成任务越多，格子颜色越深/);
@@ -353,10 +354,10 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(css, /\.activity-legend i\.level-4/);
   assert.match(css, /\.activity-day-tooltip/);
   assert.match(css, /\.recent-footprints/);
-  assert.match(css, /\.activity-weeks\{display:grid;grid-template-columns:repeat\(18,14px\)/);
+  assert.match(css, /\.activity-weeks\{display:grid;grid-template-columns:repeat\(53,14px\);justify-content:space-between/);
   assert.match(css, /\.activity-cell\{display:block;width:14px;height:14px/);
-  assert.match(css, /\.activity-months\{grid-column:2;display:grid;grid-template-columns:repeat\(18,14px\)/);
-  assert.match(css, /\.activity-chart\{width:max-content;min-width:0/);
+  assert.match(css, /\.activity-months\{grid-column:2;display:grid;grid-template-columns:repeat\(53,14px\);justify-content:space-between/);
+  assert.match(css, /\.activity-chart\{width:100%;min-width:1032px/);
   assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
   assert.match(route, /AS completedAt/);
   assert.match(route, /INSERT OR IGNORE INTO quest_completions/);
