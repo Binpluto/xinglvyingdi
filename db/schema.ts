@@ -95,6 +95,19 @@ export const teamMembers = sqliteTable("team_members", {
   uniqueIndex("team_members_user_idx").on(table.userEmail),
 ]);
 
+export const teamInvitations = sqliteTable("team_invitations", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  inviterEmail: text("inviter_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  inviteeEmail: text("invitee_email").notNull(),
+  status: text("status").notNull().default("pending"),
+  respondedAt: text("responded_at"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("team_invitations_team_email_idx").on(table.teamId, table.inviteeEmail),
+  index("team_invitations_invitee_status_idx").on(table.inviteeEmail, table.status),
+]);
+
 export const referrals = sqliteTable("referrals", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   referrerEmail: text("referrer_email").notNull().references(() => users.email),

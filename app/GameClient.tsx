@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
-type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[] };
+type TeamInvitation = { id: number; teamId: number; teamName: string; inviterName: string; memberCount: number; createdAt: string };
+type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[]; pendingInvitations: Array<{ id: number; inviteeEmail: string; createdAt: string }> };
 type RankTeam = { id: number; name: string; code: string; members: number; strength: number; focus_minutes: number };
 type FocusRecord = { id: number; minutes: number; created_at: string };
 type QuestActivityDay = { date: string; count: number };
@@ -32,6 +33,7 @@ type GameData = {
   calendarConnection: CalendarConnection;
   premiumProgram: PremiumProgram;
   team: Team | null;
+  pendingTeamInvitations: TeamInvitation[];
   leaderboard: RankTeam[];
 };
 
@@ -919,9 +921,33 @@ function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, 
 }
 
 function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
+  const [showEmailInvite, setShowEmailInvite] = useState(false);
+  const [memberEmail, setMemberEmail] = useState("");
+  const isOwner = data.team?.owner_email === data.user.email;
+  const pendingCount = data.team?.pendingInvitations.length ?? 0;
+  const availablePlaces = Math.max(0, 5 - (data.team?.member_count ?? 0) - pendingCount);
+
+  async function sendEmailInvitation() {
+    const sent = await act({ action: "sendTeamInvitation", email: memberEmail }, "小组邀请已发送，对方登录后即可确认");
+    if (sent) {
+      setMemberEmail("");
+      setShowEmailInvite(false);
+    }
+  }
+
   return <section className="social-panel">
     <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div><div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制</button></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
-    <div className="team-card glass-card">{data.team ? <><div className="team-head"><div className="team-crest">♙</div><div><small>我的五人小组</small><h2>{data.team.name}</h2><p>{data.team.member_count}/5 位成员 · 小组口令 {data.team.code}</p></div><button onClick={() => void copy(data.team!.code, "小组口令已复制")}>复制口令</button></div><div className="member-list">{data.team.members.map((m, i) => <article key={m.email}><span className="member-rank">{i + 1}</span><div className="member-avatar">{m.display_name.slice(0, 1)}</div><div><b>{m.display_name}</b><small>{m.focus_minutes} 分钟专注</small></div><strong>{m.strength.toLocaleString()} <small>实力</small></strong></article>)}{Array.from({ length: 5 - data.team.member_count }).map((_, i) => <article className="empty-member" key={i}><span>＋</span><p>等待新的同行者</p></article>)}</div></> : <><div className="section-intro"><small>同行者大厅</small><h2>创建或加入小组</h2><p>每位旅行者只能加入一个小组，每组最多 5 人。</p></div><div className="team-choices"><div><h3>建立新的营地</h3><input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="输入小组名称" maxLength={16}/><button onClick={() => void act({ action: "createTeam", name: teamName }, "小组创建成功")}>创建小组</button></div><div><h3>加入好友的小组</h3><input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="输入小组口令"/><button onClick={() => void act({ action: "joinTeam", code: teamInput }, "已加入小组")}>加入小组</button></div></div></>}</div>
+    <div className="team-card glass-card">{data.team ? <>
+      <div className="team-head"><div className="team-crest">♙</div><div><small>我的五人小组</small><h2>{data.team.name}</h2><p>{data.team.member_count}/5 位成员 · {pendingCount} 个邀请待确认 · 小组口令 {data.team.code}</p></div><div className="team-head-actions">{isOwner && data.team.member_count + pendingCount < 5 && <button className="email-invite-toggle" onClick={() => setShowEmailInvite((open) => !open)}>＋ 邀请成员</button>}<button onClick={() => void copy(data.team!.code, "小组口令已复制")}>复制口令</button></div></div>
+      {showEmailInvite && isOwner && <div className="team-email-invite"><div><small>通过注册邮箱邀请</small><b>邀请一位旅行者加入 {data.team.name}</b><p>对方登录星旅营地后会看到站内邀请，可选择接受或拒绝。</p></div><label><span>成员邮箱</span><input type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} placeholder="friend@example.com" autoFocus /></label><button disabled={!memberEmail.trim()} onClick={() => void sendEmailInvitation()}>发送邀请</button></div>}
+      <div className="member-list">{data.team.members.map((m, i) => <article key={m.email}><span className="member-rank">{i + 1}</span><div className="member-avatar">{m.display_name.slice(0, 1)}</div><div><b>{m.display_name}</b><small>{m.focus_minutes} 分钟专注</small></div><strong>{m.strength.toLocaleString()} <small>实力</small></strong></article>)}
+        {data.team.pendingInvitations.map((invitation) => <article className="pending-member" key={`pending-${invitation.id}`}><span className="member-rank">⌛</span><div className="member-avatar">✉</div><div><b>{invitation.inviteeEmail}</b><small>等待对方确认邀请</small></div><strong>待加入</strong></article>)}
+        {Array.from({ length: availablePlaces }).map((_, i) => isOwner ? <button className="empty-member" key={i} onClick={() => setShowEmailInvite(true)}><span>＋</span><p>输入邮箱邀请成员</p></button> : <article className="empty-member" key={i}><span>＋</span><p>等待新的同行者</p></article>)}
+      </div>
+    </> : <>
+      {data.pendingTeamInvitations.length > 0 && <div className="team-invitation-inbox"><div className="team-inbox-heading"><span>✉</span><div><small>同行邀请</small><b>有小组正在等待你的回应</b></div></div>{data.pendingTeamInvitations.map((invitation) => <article key={invitation.id}><div><small>{invitation.inviterName} 邀请你加入</small><b>{invitation.teamName}</b><span>{invitation.memberCount}/5 位成员</span></div><div><button className="decline" onClick={() => void act({ action: "declineTeamInvitation", invitationId: invitation.id }, "已婉拒小组邀请")}>拒绝</button><button onClick={() => void act({ action: "acceptTeamInvitation", invitationId: invitation.id }, `已加入「${invitation.teamName}」`)}>接受邀请</button></div></article>)}</div>}
+      <div className="section-intro"><small>同行者大厅</small><h2>创建或加入小组</h2><p>每位旅行者只能加入一个小组，每组最多 5 人。</p></div><div className="team-choices"><div><h3>建立新的营地</h3><input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="输入小组名称" maxLength={16}/><button onClick={() => void act({ action: "createTeam", name: teamName }, "小组创建成功")}>创建小组</button></div><div><h3>加入好友的小组</h3><input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="输入小组口令"/><button onClick={() => void act({ action: "joinTeam", code: teamInput }, "已加入小组")}>加入小组</button></div></div>
+    </>}</div>
   </section>;
 }
 

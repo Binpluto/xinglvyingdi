@@ -447,6 +447,22 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     FROM team_members tm JOIN users u ON u.email = tm.user_email
     WHERE tm.team_id = ? ORDER BY strength DESC
   `).bind(team.id).all() : { results: [] };
+  const teamPendingInvitations = team ? await db.prepare(`
+    SELECT id, invitee_email AS inviteeEmail, created_at AS createdAt
+    FROM team_invitations
+    WHERE team_id = ? AND status = 'pending'
+    ORDER BY id DESC
+  `).bind(team.id).all() : { results: [] };
+  const pendingTeamInvitations = await db.prepare(`
+    SELECT ti.id, ti.team_id AS teamId, t.name AS teamName,
+      u.display_name AS inviterName, ti.created_at AS createdAt,
+      (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = ti.team_id) AS memberCount
+    FROM team_invitations ti
+    JOIN teams t ON t.id = ti.team_id
+    JOIN users u ON u.email = ti.inviter_email
+    WHERE ti.invitee_email = ? AND ti.status = 'pending'
+    ORDER BY ti.id DESC
+  `).bind(email).all();
   const leaderboard = await db.prepare(`
     SELECT t.id, t.name, t.code, COUNT(tm.user_email) AS members,
       SUM(u.xp + u.focus_minutes * 2) AS strength,
@@ -511,7 +527,8 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     calendarConnection: calendarConnection
       ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
       : { connected: false, googleEmail: null, lastSyncedAt: null },
-    team: team ? { ...team, members: members.results } : null,
+    team: team ? { ...team, members: members.results, pendingInvitations: teamPendingInvitations.results } : null,
+    pendingTeamInvitations: pendingTeamInvitations.results,
     leaderboard: leaderboard.results,
   };
 }
@@ -553,6 +570,8 @@ export async function POST(request: Request) {
       criteriaConfirmed?: number[];
       clientDate?: string;
       premiumEmails?: string[];
+      email?: string;
+      invitationId?: number;
     };
     const db = env.DB;
 
@@ -746,6 +765,61 @@ export async function POST(request: Request) {
       const created = await db.prepare("INSERT INTO teams (name, code, owner_email) VALUES (?, ?, ?) RETURNING id")
         .bind(name, code, identity.email).first<{ id: number }>();
       await db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(created?.id, identity.email).run();
+    } else if (body.action === "sendTeamInvitation") {
+      const inviteeEmail = (body.email ?? "").trim().toLowerCase().slice(0, 254);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteeEmail)) {
+        return Response.json({ error: "请输入有效的邮箱地址" }, { status: 400 });
+      }
+      if (inviteeEmail === identity.email) return Response.json({ error: "不能邀请自己加入小组" }, { status: 400 });
+      const ownedTeam = await db.prepare(`
+        SELECT t.id,
+          (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS members,
+          (SELECT COUNT(*) FROM team_invitations ti WHERE ti.team_id = t.id AND ti.status = 'pending') AS pendingInvites
+        FROM teams t WHERE t.owner_email = ?
+      `).bind(identity.email).first<{ id: number; members: number; pendingInvites: number }>();
+      if (!ownedTeam) return Response.json({ error: "只有小组队长可以通过邮箱邀请成员" }, { status: 403 });
+      const invitedUser = await db.prepare("SELECT 1 FROM users WHERE email = ?").bind(inviteeEmail).first();
+      if (!invitedUser) return Response.json({ error: "该邮箱尚未注册星旅营地，请对方注册后再邀请" }, { status: 404 });
+      const membership = await db.prepare("SELECT team_id AS teamId FROM team_members WHERE user_email = ?")
+        .bind(inviteeEmail).first<{ teamId: number }>();
+      if (membership?.teamId === ownedTeam.id) return Response.json({ error: "该旅行者已经在你的小组中" }, { status: 400 });
+      if (membership) return Response.json({ error: "该旅行者已经加入了其他小组" }, { status: 400 });
+      const existingInvitation = await db.prepare(`
+        SELECT status FROM team_invitations WHERE team_id = ? AND invitee_email = ?
+      `).bind(ownedTeam.id, inviteeEmail).first<{ status: string }>();
+      const reservedPlaces = ownedTeam.members + ownedTeam.pendingInvites - (existingInvitation?.status === "pending" ? 1 : 0);
+      if (reservedPlaces >= 5) return Response.json({ error: "小组成员与待确认邀请已达到 5 人上限" }, { status: 400 });
+      await db.prepare(`
+        INSERT INTO team_invitations (team_id, inviter_email, invitee_email)
+        VALUES (?, ?, ?)
+        ON CONFLICT(team_id, invitee_email) DO UPDATE SET
+          inviter_email = excluded.inviter_email,
+          status = 'pending', responded_at = NULL, created_at = CURRENT_TIMESTAMP
+      `).bind(ownedTeam.id, identity.email, inviteeEmail).run();
+    } else if (body.action === "acceptTeamInvitation") {
+      const invitationId = Number(body.invitationId);
+      const invitation = await db.prepare(`
+        SELECT ti.id, ti.team_id AS teamId,
+          (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = ti.team_id) AS members
+        FROM team_invitations ti
+        WHERE ti.id = ? AND ti.invitee_email = ? AND ti.status = 'pending'
+      `).bind(invitationId, identity.email).first<{ id: number; teamId: number; members: number }>();
+      if (!invitation) return Response.json({ error: "邀请不存在或已经处理" }, { status: 404 });
+      const membership = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(identity.email).first();
+      if (membership) return Response.json({ error: "你已经加入了一个小组" }, { status: 400 });
+      if (invitation.members >= 5) return Response.json({ error: "该小组已经满员（最多 5 人）" }, { status: 400 });
+      await db.batch([
+        db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(invitation.teamId, identity.email),
+        db.prepare("UPDATE team_invitations SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(invitation.id),
+        db.prepare("UPDATE team_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP WHERE invitee_email = ? AND status = 'pending' AND id != ?").bind(identity.email, invitation.id),
+      ]);
+    } else if (body.action === "declineTeamInvitation") {
+      const invitationId = Number(body.invitationId);
+      const updated = await db.prepare(`
+        UPDATE team_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND invitee_email = ? AND status = 'pending'
+      `).bind(invitationId, identity.email).run();
+      if (!updated.meta.changes) return Response.json({ error: "邀请不存在或已经处理" }, { status: 404 });
     } else if (body.action === "joinTeam") {
       const code = (body.code ?? "").trim().toUpperCase();
       const exists = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(identity.email).first();

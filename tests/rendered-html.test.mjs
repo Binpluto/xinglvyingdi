@@ -93,6 +93,26 @@ test("creates three rotating daily system quests with distinct difficulty reward
   assert.match(client, /系统 · 困难/);
 });
 
+test("supports owner email invitations with recipient accept or decline", async () => {
+  const [client, route, schema] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+  ]);
+
+  assert.match(client, /＋ 邀请成员/);
+  assert.match(client, /通过注册邮箱邀请/);
+  assert.match(client, /sendTeamInvitation/);
+  assert.match(client, /acceptTeamInvitation/);
+  assert.match(client, /declineTeamInvitation/);
+  assert.match(route, /只有小组队长可以通过邮箱邀请成员/);
+  assert.match(route, /小组成员与待确认邀请已达到 5 人上限/);
+  assert.match(route, /INSERT INTO team_invitations/);
+  assert.match(route, /pendingTeamInvitations/);
+  assert.match(schema, /teamInvitations = sqliteTable\("team_invitations"/);
+  assert.match(schema, /team_invitations_invitee_status_idx/);
+});
+
 test("supports encrypted direct Google Calendar synchronization", async () => {
   const [client, helper, connectRoute, callbackRoute, gameRoute, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
