@@ -74,6 +74,25 @@ test("orders today's unfinished quests first and completed quests last", async (
   assert.match(client, /const calendarAgenda = sortQuests/);
 });
 
+test("creates three rotating daily system quests with distinct difficulty rewards", async () => {
+  const [client, route, schema] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+  ]);
+
+  assert.match(route, /const dailySystemQuestPools/);
+  assert.match(route, /difficulty: "easy"[\s\S]*reward: 25/);
+  assert.match(route, /difficulty: "medium"[\s\S]*reward: 45/);
+  assert.match(route, /difficulty: "hard"[\s\S]*reward: 80/);
+  assert.match(route, /ensureDailySystemQuests\(email, clientDate\)/);
+  assert.match(route, /INSERT OR IGNORE INTO daily_system_quest_days/);
+  assert.match(schema, /dailySystemQuestDays = sqliteTable\("daily_system_quest_days"/);
+  assert.match(client, /系统 · 简单/);
+  assert.match(client, /系统 · 普通/);
+  assert.match(client, /系统 · 困难/);
+});
+
 test("supports encrypted direct Google Calendar synchronization", async () => {
   const [client, helper, connectRoute, callbackRoute, gameRoute, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),

@@ -29,6 +29,84 @@ const starterQuests = [
   ["风之小径", "户外散步 20 分钟", "日常", 25],
 ] as const;
 
+const dailySystemQuestPools = [
+  {
+    difficulty: "easy",
+    type: "日常",
+    reward: 25,
+    quests: [
+      ["整理今日航向", "用 5 分钟写下今天最重要的一件事，并明确完成标准。"],
+      ["补给营地", "整理桌面或数字文件 10 分钟，让下一步行动更轻松。"],
+      ["晨星签到", "记录今天的精力状态，并写下一句行动承诺。"],
+      ["微光散步", "离开屏幕活动 10 分钟，回来后补充一杯水。"],
+    ],
+  },
+  {
+    difficulty: "medium",
+    type: "支线",
+    reward: 45,
+    quests: [
+      ["专注秘境", "完成一次不少于 25 分钟的无干扰专注，并记录阶段成果。"],
+      ["推进关键委托", "为当前最重要的目标投入 30 分钟，留下可查看的成果。"],
+      ["知识补给", "学习一个主题 30 分钟，整理至少 3 条可复用笔记。"],
+      ["关系回响", "主动完成一次真诚沟通，并记录达成的共识。"],
+    ],
+  },
+  {
+    difficulty: "hard",
+    type: "主线",
+    reward: 80,
+    quests: [
+      ["深度远征", "完成一次 60 分钟深度工作，关闭通知并交付明确成果。"],
+      ["攻克拖延巨兽", "完成一件拖延超过 3 天的重要事项，并记录解决方法。"],
+      ["勇者交付", "提交一个可被他人查看或使用的完整成果，并收集一次反馈。"],
+      ["世界航线复盘", "系统复盘本周目标，删除无效事项并制定下一阶段计划。"],
+    ],
+  },
+] as const;
+
+function dailyQuestIndex(key: string, poolSize: number) {
+  let hash = 2166136261;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % poolSize;
+}
+
+async function ensureDailySystemQuests(email: string, clientDate: string) {
+  const existingDay = await env.DB.prepare(`
+    SELECT 1 FROM daily_system_quest_days
+    WHERE user_email = ? AND quest_date = ?
+  `).bind(email, clientDate).first();
+  if (existingDay) return;
+
+  const questStatements = dailySystemQuestPools.map((pool) => {
+    const template = pool.quests[dailyQuestIndex(`${email}:${clientDate}:${pool.difficulty}`, pool.quests.length)];
+    return env.DB.prepare(`
+      INSERT OR IGNORE INTO quests
+        (user_email, title, detail, type, reward, source, due_at, external_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      email,
+      template[0],
+      template[1],
+      pool.type,
+      pool.reward,
+      `system-daily-${pool.difficulty}`,
+      clientDate,
+      `daily:${clientDate}:${pool.difficulty}`,
+    );
+  });
+  await env.DB.batch([
+    ...questStatements,
+    env.DB.prepare(`
+      INSERT OR IGNORE INTO daily_system_quest_days (user_email, quest_date)
+      VALUES (?, ?)
+    `).bind(email, clientDate),
+  ]);
+}
+
 type RealmRule = {
   xpRequired: number;
   taskReward: number;
@@ -328,6 +406,7 @@ function validClientDate(value?: string | null) {
 async function dashboard(email: string, requestedClientDate?: string | null) {
   const db = env.DB;
   const clientDate = validClientDate(requestedClientDate);
+  await ensureDailySystemQuests(email, clientDate);
   await syncRealmUnlock(email);
   const user = await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<UserRow>();
   const quests = await db.prepare(`

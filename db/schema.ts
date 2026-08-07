@@ -48,6 +48,14 @@ export const quests = sqliteTable("quests", {
   uniqueIndex("quests_calendar_event_idx").on(table.userEmail, table.source, table.externalId),
 ]);
 
+export const dailySystemQuestDays = sqliteTable("daily_system_quest_days", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  questDate: text("quest_date").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userEmail, table.questDate] }),
+]);
+
 export const questCompletions = sqliteTable("quest_completions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),

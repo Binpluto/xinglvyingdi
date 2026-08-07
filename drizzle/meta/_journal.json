@@ -85,6 +85,13 @@
       "when": 1785852903882,
       "tag": "0011_spotty_darkhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786105439698,
+      "tag": "0012_whole_boomerang",
+      "breakpoints": true
     }
   ]
 }
