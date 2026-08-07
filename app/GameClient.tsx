@@ -415,6 +415,13 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     window.history.replaceState({}, "", window.location.pathname);
   }, []);
   useEffect(() => {
+    const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase() ?? "";
+    if (!/^[A-Z0-9-]{4,32}$/.test(inviteCode)) return;
+    setInviteInput(inviteCode);
+    setTab("营地");
+    notify("好友邀请链接已载入，登录后确认即可领取双方奖励");
+  }, []);
+  useEffect(() => {
     if (!data?.calendarConnection.connected || !data.calendarAccess.active) return;
     const lastSync = data.calendarConnection.lastSyncedAt ? Date.parse(data.calendarConnection.lastSyncedAt) : 0;
     if (!lastSync || Date.now() - lastSync > 120000) {
@@ -460,6 +467,11 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   async function copy(value: string, message: string) {
     await navigator.clipboard.writeText(value);
     notify(message);
+  }
+
+  async function redeemFriendInvite() {
+    const redeemed = await act({ action: "redeemInvite", code: inviteInput }, "邀请绑定成功，双方奖励已到账");
+    if (redeemed) window.history.replaceState({}, "", window.location.pathname);
   }
 
   function toggleFocusTimer() {
@@ -539,7 +551,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       </section>
 
       <button className="invite-fab" onClick={() => setTab("小组")}><span>♙</span>邀请好友</button>
-      {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void act({ action: "redeemInvite", code: inviteInput }, "邀请绑定成功，双方奖励已到账")}>领取奖励</button></div>}
+      {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void redeemFriendInvite()}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
       {levelMilestone && activeMilestoneCopy && <div className={`level-milestone-backdrop ${isGrandMilestone ? "milestone-grand" : "milestone-small"}`}>
@@ -923,6 +935,7 @@ function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, 
 function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
   const [showEmailInvite, setShowEmailInvite] = useState(false);
   const [memberEmail, setMemberEmail] = useState("");
+  const [friendEmail, setFriendEmail] = useState("");
   const isOwner = data.team?.owner_email === data.user.email;
   const pendingCount = data.team?.pendingInvitations.length ?? 0;
   const availablePlaces = Math.max(0, 5 - (data.team?.member_count ?? 0) - pendingCount);
@@ -935,8 +948,29 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
     }
   }
 
+  function referralShareUrl() {
+    const url = new URL(window.location.origin + window.location.pathname);
+    url.searchParams.set("invite", data.user.inviteCode);
+    return url.toString();
+  }
+
+  function sendReferralEmail() {
+    const recipient = friendEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) return;
+    const subject = "来自星旅营地的同行邀请";
+    const body = [
+      `${data.user.name} 邀请你加入「星旅营地」人生冒险。`,
+      "",
+      "通过下面的专属链接注册或登录，确认邀请后你们双方都会获得 EXP 与星辉奖励：",
+      referralShareUrl(),
+      "",
+      `备用邀请码：${data.user.inviteCode}`,
+    ].join("\n");
+    window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
   return <section className="social-panel">
-    <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div><div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制</button></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
+    <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div><div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><div className="code-actions"><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制邀请码</button><button onClick={() => void copy(referralShareUrl(), "专属邀请链接已复制")}>复制邀请链接</button></div></div><div className="referral-email-share"><div><small>邮箱邀请链接</small><b>把专属旅程入口发送给好友</b></div><input type="email" value={friendEmail} onChange={(event) => setFriendEmail(event.target.value)} placeholder="好友邮箱 friend@example.com"/><button disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(friendEmail.trim())} onClick={sendReferralEmail}>用邮箱发送</button><p>将打开你的默认邮箱并自动填好内容；收件人邮箱不会保存在星旅营地。</p></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
     <div className="team-card glass-card">{data.team ? <>
       <div className="team-head"><div className="team-crest">♙</div><div><small>我的五人小组</small><h2>{data.team.name}</h2><p>{data.team.member_count}/5 位成员 · {pendingCount} 个邀请待确认 · 小组口令 {data.team.code}</p></div><div className="team-head-actions">{isOwner && data.team.member_count + pendingCount < 5 && <button className="email-invite-toggle" onClick={() => setShowEmailInvite((open) => !open)}>＋ 邀请成员</button>}<button onClick={() => void copy(data.team!.code, "小组口令已复制")}>复制口令</button></div></div>
       {showEmailInvite && isOwner && <div className="team-email-invite"><div><small>通过注册邮箱邀请</small><b>邀请一位旅行者加入 {data.team.name}</b><p>对方登录星旅营地后会看到站内邀请，可选择接受或拒绝。</p></div><label><span>成员邮箱</span><input type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} placeholder="friend@example.com" autoFocus /></label><button disabled={!memberEmail.trim()} onClick={() => void sendEmailInvitation()}>发送邀请</button></div>}

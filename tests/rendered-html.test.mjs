@@ -113,6 +113,18 @@ test("supports owner email invitations with recipient accept or decline", async 
   assert.match(schema, /team_invitations_invitee_status_idx/);
 });
 
+test("shares referral links through email and preloads invite codes from the URL", async () => {
+  const client = await readFile(new URL("app/GameClient.tsx", root), "utf8");
+
+  assert.match(client, /邮箱邀请链接/);
+  assert.match(client, /mailto:/);
+  assert.match(client, /url\.searchParams\.set\("invite", data\.user\.inviteCode\)/);
+  assert.match(client, /new URLSearchParams\(window\.location\.search\)\.get\("invite"\)/);
+  assert.match(client, /setInviteInput\(inviteCode\)/);
+  assert.match(client, /复制邀请链接/);
+  assert.match(client, /收件人邮箱不会保存在星旅营地/);
+});
+
 test("supports encrypted direct Google Calendar synchronization", async () => {
   const [client, helper, connectRoute, callbackRoute, gameRoute, migration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
