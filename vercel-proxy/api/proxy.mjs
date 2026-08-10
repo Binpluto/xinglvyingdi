@@ -34,7 +34,18 @@ function requestBody(req) {
 }
 
 function injectVercelEnhancements(html) {
-  const assets = '<link rel="stylesheet" href="/energy-ui.css?v=2"><script defer src="/energy-ui.js?v=2"></script>';
+  const assets = [
+    '<meta name="theme-color" content="#0b5267">',
+    '<meta name="mobile-web-app-capable" content="yes">',
+    '<meta name="apple-mobile-web-app-capable" content="yes">',
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
+    '<meta name="apple-mobile-web-app-title" content="星旅营地">',
+    '<link rel="manifest" href="/manifest.webmanifest">',
+    '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
+    '<link rel="stylesheet" href="/energy-ui.css?v=2">',
+    '<script defer src="/energy-ui.js?v=2"></script>',
+    '<script defer src="/pwa-register.js?v=1"></script>'
+  ].join("");
   return html.includes("</head>") ? html.replace("</head>", `${assets}</head>`) : `${assets}${html}`;
 }
 
