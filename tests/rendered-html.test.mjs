@@ -149,9 +149,26 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
   assert.match(connectRoute, /google_oauth_states/);
   assert.match(callbackRoute, /encryptRefreshToken/);
   assert.match(callbackRoute, /syncGoogleCalendar/);
+  assert.match(callbackRoute, /appPublicOrigin\(request\)/);
+  assert.match(callbackRoute, /savedState\.user_email/);
   assert.match(gameRoute, /disconnectGoogleCalendar/);
   assert.match(migration, /google_calendar_connections/);
   assert.match(migration, /google_oauth_states/);
+});
+
+test("supports a Vercel public entry while keeping the existing cloud database", async () => {
+  const [auth, checkout, proxy, envExample] = await Promise.all([
+    readFile(new URL("app/app-auth.ts", root), "utf8"),
+    readFile(new URL("app/api/billing/calendar-checkout/route.ts", root), "utf8"),
+    readFile(new URL("vercel-proxy/vercel.json", root), "utf8"),
+    readFile(new URL(".env.example", root), "utf8"),
+  ]);
+
+  assert.match(auth, /PUBLIC_APP_ORIGIN/);
+  assert.match(auth, /allowedOrigins/);
+  assert.match(checkout, /appPublicOrigin\(request\)/);
+  assert.match(proxy, /starcamp-life-adventure\.tianyuanzhaodg\.chatgpt\.site/);
+  assert.match(envExample, /PUBLIC_APP_ORIGIN=/);
 });
 
 test("calendar synchronization imports only the sync date and future tasks", async () => {
@@ -170,7 +187,7 @@ test("calendar synchronization imports only the sync date and future tasks", asy
   assert.match(helper, /applyEvents\(email, changes\.events, syncFromDate\)/);
   assert.doesNotMatch(helper, /Date\.now\(\) - 30 \* 86400000/);
   assert.match(connectRoute, /stateToken\(syncFromDate\)/);
-  assert.match(callbackRoute, /syncGoogleCalendar\(identity\.email, syncFromDate\)/);
+  assert.match(callbackRoute, /syncGoogleCalendar\(savedState\.user_email, syncFromDate\)/);
   assert.match(gameRoute, /parseCalendar\(calendarText, rangeDays, body\.clientDate\)/);
 });
 

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { getAppUser } from "../../../app-auth";
+import { appPublicOrigin } from "../../../app-auth";
 import { requireCalendarAccess } from "../../../calendar-access";
 import {
   encryptRefreshToken,
@@ -9,11 +9,8 @@ import {
 } from "../../../google-calendar";
 
 export async function GET(request: Request) {
-  const returnUrl = new URL("/", request.url);
+  const returnUrl = new URL("/", appPublicOrigin(request));
   try {
-    const identity = await getAppUser(request);
-    if (!identity) throw new Error("登录状态已失效");
-    await requireCalendarAccess(identity.email);
     const url = new URL(request.url);
     const state = url.searchParams.get("state") || "";
     const code = url.searchParams.get("code") || "";
@@ -23,7 +20,8 @@ export async function GET(request: Request) {
       WHERE state = ? AND expires_at > ?
     `).bind(state, new Date().toISOString()).first<{ user_email: string }>();
     await env.DB.prepare("DELETE FROM google_oauth_states WHERE state = ?").bind(state).run();
-    if (!savedState || savedState.user_email !== identity.email) throw new Error("授权请求已过期");
+    if (!savedState) throw new Error("授权请求已过期");
+    await requireCalendarAccess(savedState.user_email);
     const syncFromDate = state.match(/\.(\d{4}-\d{2}-\d{2})$/)?.[1];
     const tokens = await exchangeAuthorizationCode(request, code);
     const googleEmail = await googleCalendarIdentity(tokens.access_token!);
@@ -37,8 +35,8 @@ export async function GET(request: Request) {
         sync_token = NULL,
         last_synced_at = NULL,
         connected_at = CURRENT_TIMESTAMP
-    `).bind(identity.email, await encryptRefreshToken(tokens.refresh_token!, identity.email), googleEmail).run();
-    await syncGoogleCalendar(identity.email, syncFromDate);
+    `).bind(savedState.user_email, await encryptRefreshToken(tokens.refresh_token!, savedState.user_email), googleEmail).run();
+    await syncGoogleCalendar(savedState.user_email, syncFromDate);
     returnUrl.searchParams.set("calendar", "connected");
   } catch {
     returnUrl.searchParams.set("calendar", "error");

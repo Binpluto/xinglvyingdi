@@ -25,6 +25,19 @@ type ExistingProgressRow = {
 
 export type AppIdentity = { email: string; displayName: string };
 
+export function appPublicOrigin(request: Request) {
+  const configured = (env as unknown as { PUBLIC_APP_ORIGIN?: string }).PUBLIC_APP_ORIGIN?.trim();
+  if (configured) {
+    try {
+      const url = new URL(configured);
+      if (url.protocol === "https:") return url.origin;
+    } catch {
+      // Fall back to the request origin when the optional public entry URL is malformed.
+    }
+  }
+  return new URL(request.url).origin;
+}
+
 function encodeBase64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -192,5 +205,6 @@ export function clearSessionCookie(request: Request) {
 
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) throw new Error("请求来源无效");
+  const allowedOrigins = new Set([new URL(request.url).origin, appPublicOrigin(request)]);
+  if (origin && !allowedOrigins.has(origin)) throw new Error("请求来源无效");
 }

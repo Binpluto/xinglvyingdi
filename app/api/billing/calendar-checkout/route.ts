@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { assertSameOrigin, getAppUser } from "../../../app-auth";
+import { appPublicOrigin, assertSameOrigin, getAppUser } from "../../../app-auth";
 import { calendarPlans, getCalendarAccess, type CalendarPlanKey } from "../../../calendar-access";
 
 type BillingEnv = {
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     if (!billing.WAFFO_STORE_SLUG || !waffoProductId) {
       return Response.json({ error: "Waffo 支付通道正在配置中，7 天试用与 Lv.100 奖励可正常使用" }, { status: 503 });
     }
-    const origin = new URL(request.url).origin;
+    const origin = appPublicOrigin(request);
     const externalId = `calendar_${crypto.randomUUID()}`;
     const expectedAmountMinor = Math.round(calendarPlans[plan].priceHkd * 100);
     await env.DB.prepare(`
