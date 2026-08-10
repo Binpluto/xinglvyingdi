@@ -39,6 +39,18 @@ const dailySystemQuestPools = [
       ["补给营地", "整理桌面或数字文件 10 分钟，让下一步行动更轻松。"],
       ["晨星签到", "记录今天的精力状态，并写下一句行动承诺。"],
       ["微光散步", "离开屏幕活动 10 分钟，回来后补充一杯水。"],
+      ["清理消息岛", "处理、归档或删除至少 10 条无效消息，让注意力重新清爽。"],
+      ["一页计划", "把今天的安排压缩成一页，只保留三件真正重要的事情。"],
+      ["水晶补给", "完成一次补水，并为接下来两小时准备好饮用水。"],
+      ["呼吸锚点", "进行 3 分钟缓慢呼吸，记录此刻最明显的身体感受。"],
+      ["收纳一角", "选择一个小区域整理 10 分钟，让常用物品回到固定位置。"],
+      ["感恩星笺", "写下今天值得感谢的三件小事，并说明其中一件为什么重要。"],
+      ["数字减负", "关闭三个不必要的通知或标签页，减少今天的数字干扰。"],
+      ["明日装备", "提前准备明天最先要用的资料、衣物或工具。"],
+      ["财务微记", "记录今天的一笔支出或收入，并为它补充清晰分类。"],
+      ["晨光伸展", "完成 8 分钟全身伸展，重点放松肩颈与腰背。"],
+      ["灵感捕捉", "记录三个突然出现的想法，并挑选一个作为未来行动种子。"],
+      ["早睡约定", "确定今晚停止使用屏幕的时间，并设置一个提前提醒。"],
     ],
   },
   {
@@ -50,6 +62,18 @@ const dailySystemQuestPools = [
       ["推进关键委托", "为当前最重要的目标投入 30 分钟，留下可查看的成果。"],
       ["知识补给", "学习一个主题 30 分钟，整理至少 3 条可复用笔记。"],
       ["关系回响", "主动完成一次真诚沟通，并记录达成的共识。"],
+      ["身体历练", "完成一次 30 分钟运动，记录项目、时长与运动后的感受。"],
+      ["输出一页", "围绕当前主题完成一页可阅读的文字、图表或设计草稿。"],
+      ["难题拆解", "把一个复杂问题拆成至少五步，并立即完成第一步。"],
+      ["家庭支援", "主动完成一项能减轻家人负担的事务，并确认实际结果。"],
+      ["财务整理", "检查最近七天的消费，找出一项可以优化的支出。"],
+      ["创作冲刺", "连续创作 35 分钟，中途不修改，结束后再统一整理。"],
+      ["环境升级", "改善一个影响效率的环境问题，并记录调整前后的变化。"],
+      ["社交补给", "联系一位许久未交流的人，完成一次有内容的问候。"],
+      ["复盘航线", "回顾最近三项行动，分别写下继续、停止和改进的决定。"],
+      ["技能练习", "针对一项核心技能完成 30 分钟刻意练习并留下结果。"],
+      ["阅读航标", "阅读一个完整章节或长文，提炼观点、证据与一个疑问。"],
+      ["延迟满足", "推迟一次非必要消费或娱乐 30 分钟，先完成当前重要事项。"],
     ],
   },
   {
@@ -61,17 +85,38 @@ const dailySystemQuestPools = [
       ["攻克拖延巨兽", "完成一件拖延超过 3 天的重要事项，并记录解决方法。"],
       ["勇者交付", "提交一个可被他人查看或使用的完整成果，并收集一次反馈。"],
       ["世界航线复盘", "系统复盘本周目标，删除无效事项并制定下一阶段计划。"],
+      ["长征交付", "连续投入 90 分钟，完成一个可以正式交付的阶段成果。"],
+      ["系统整理", "重构一个长期混乱的工作流程，并留下可重复执行的清单。"],
+      ["关系深谈", "完成一次不少于 45 分钟的重要对话，澄清分歧与下一步。"],
+      ["健康突破", "完成一项有明确强度的健康挑战，并记录数据与恢复计划。"],
+      ["财务决策", "完成一次完整的预算或大额支出评估，写下依据与边界。"],
+      ["创作成章", "完成一个完整章节、作品单元或可公开展示的创作成果。"],
+      ["学习实战", "把新学知识应用到真实问题，产出结果并记录验证过程。"],
+      ["积压清零", "集中处理一组长期积压事项，至少关闭其中五项。"],
+      ["公开表达", "完成一次公开分享、演示或发布，并收集至少一条反馈。"],
+      ["团队协作", "组织一次明确分工的协作，推动团队交付共同成果。"],
+      ["长期规划", "制定未来 30 天目标，写明衡量标准、关键节点与风险预案。"],
+      ["数字断舍离", "深度整理一个数字空间，归档资料并建立可持续命名规则。"],
     ],
   },
 ] as const;
 
-function dailyQuestIndex(key: string, poolSize: number) {
+const DAILY_QUEST_REPEAT_WINDOW = 14;
+
+function stableQuestOffset(key: string) {
   let hash = 2166136261;
   for (let index = 0; index < key.length; index += 1) {
     hash ^= key.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) % poolSize;
+  return hash >>> 0;
+}
+
+function dailyQuestIndex(email: string, clientDate: string, difficulty: string, poolSize: number) {
+  if (poolSize <= DAILY_QUEST_REPEAT_WINDOW) throw new Error("每日系统任务库不足以保证两周内不重复");
+  const dayNumber = Math.floor(Date.parse(`${clientDate}T00:00:00Z`) / 86400000);
+  const userOffset = stableQuestOffset(`${email}:${difficulty}`) % poolSize;
+  return (dayNumber + userOffset) % poolSize;
 }
 
 async function ensureDailySystemQuests(email: string, clientDate: string) {
@@ -82,7 +127,7 @@ async function ensureDailySystemQuests(email: string, clientDate: string) {
   if (existingDay) return;
 
   const questStatements = dailySystemQuestPools.map((pool) => {
-    const template = pool.quests[dailyQuestIndex(`${email}:${clientDate}:${pool.difficulty}`, pool.quests.length)];
+    const template = pool.quests[dailyQuestIndex(email, clientDate, pool.difficulty, pool.quests.length)];
     return env.DB.prepare(`
       INSERT OR IGNORE INTO quests
         (user_email, title, detail, type, reward, source, due_at, external_id)

@@ -85,6 +85,10 @@ test("creates three rotating daily system quests with distinct difficulty reward
   assert.match(route, /difficulty: "easy"[\s\S]*reward: 25/);
   assert.match(route, /difficulty: "medium"[\s\S]*reward: 45/);
   assert.match(route, /difficulty: "hard"[\s\S]*reward: 80/);
+  assert.match(route, /const DAILY_QUEST_REPEAT_WINDOW = 14/);
+  assert.match(route, /poolSize <= DAILY_QUEST_REPEAT_WINDOW/);
+  assert.match(route, /Date\.parse\(`\$\{clientDate\}T00:00:00Z`\) \/ 86400000/);
+  assert.match(route, /stableQuestOffset\(`\$\{email\}:\$\{difficulty\}`\)/);
   assert.match(route, /ensureDailySystemQuests\(email, clientDate\)/);
   assert.match(route, /INSERT OR IGNORE INTO daily_system_quest_days/);
   assert.match(schema, /dailySystemQuestDays = sqliteTable\("daily_system_quest_days"/);
