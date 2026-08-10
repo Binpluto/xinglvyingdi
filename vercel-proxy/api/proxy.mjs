@@ -43,7 +43,9 @@ function injectVercelEnhancements(html) {
     '<link rel="manifest" href="/manifest.webmanifest">',
     '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
     '<link rel="stylesheet" href="/energy-ui.css?v=2">',
+    '<link rel="stylesheet" href="/medal-ui.css?v=1">',
     '<script defer src="/energy-ui.js?v=2"></script>',
+    '<script defer src="/medal-ui.js?v=1"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
   ].join("");
   return html.includes("</head>") ? html.replace("</head>", `${assets}</head>`) : `${assets}${html}`;
