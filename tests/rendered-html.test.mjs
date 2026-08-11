@@ -104,10 +104,14 @@ test("renders today's energy as a red-orange-green score bar", async () => {
   assert.match(client, /const DAILY_ENERGY_GOAL = 150/);
   assert.match(client, /className="energy-meter"/);
   assert.match(client, /今日积分/);
+  assert.match(client, /score > 0[\s\S]*初光已现/);
+  assert.match(client, /<span>0<\/span><span>30<\/span><span>60<\/span><span>90<\/span><span>120<\/span><span>150<\/span>/);
   assert.match(client, /score >= 120[\s\S]*green-deep/);
   assert.doesNotMatch(client, /className="energy-ring"/);
   assert.match(css, /\.energy-meter\{/);
   assert.match(css, /#d45151 0 20%[\s\S]*#de7c32 20% 40%[\s\S]*var\(--energy-deep\) 80% 100%/);
+  assert.match(css, /\.energy-scale span:nth-child\(2\)\{left:20%\}[\s\S]*nth-child\(6\)\{left:100%/);
+  assert.match(css, /\.energy-meter::after[\s\S]*background:#e2eae5/);
   assert.match(css, /\.camp-weather\.energy-green-deep/);
 });
 

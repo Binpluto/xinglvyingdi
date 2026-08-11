@@ -254,7 +254,9 @@ function campEnergy(data: GameData) {
         ? { tone: "green-soft", icon: "☀", label: "状态良好", message: "今日状态已经进入绿色区间，继续保持这份节奏。" }
         : score >= 30
           ? { tone: "orange", icon: "◐", label: "逐渐升温", message: "能量正在回升，再完成一项任务就更接近绿色区间。" }
-          : { tone: "red", icon: "☁", label: "等待点亮", message: "今日能量仍然偏低，开始一次专注或完成任务即可推进。" };
+          : score > 0
+            ? { tone: "red", icon: "◔", label: "初光已现", message: "今日能量已经开始积累，再完成一项任务即可继续推进。" }
+            : { tone: "red", icon: "☁", label: "等待点亮", message: "今日能量仍然偏低，开始一次专注或完成任务即可推进。" };
   return { score, progress, taskEnergy, focusEnergy, completedToday: completedToday.length, main, side, daily, ...state };
 }
 
@@ -672,7 +674,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
         aria-valuemax={DAILY_ENERGY_GOAL}
         aria-valuenow={Math.min(energy.score, DAILY_ENERGY_GOAL)}
       ><i aria-hidden="true" /></div>
-      <div className="energy-scale" aria-hidden="true"><span>0</span><span>30</span><span>60</span><span>90</span><span>120+</span></div>
+      <div className="energy-scale" aria-hidden="true"><span>0</span><span>30</span><span>60</span><span>90</span><span>120</span><span>150</span></div>
       <div className="energy-sources" aria-label="今日能量来源">
         <span><i>◷</i><b>专注 {data.todayFocusMinutes} 分钟</b><em>+{energy.focusEnergy}</em></span>
         <span><i>✦</i><b>完成 {energy.completedToday} 项任务</b><em>+{energy.taskEnergy}</em></span>
