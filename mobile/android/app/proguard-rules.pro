@@ -1,0 +1,1 @@
+-keepclassmembers class starcamp.lifeadventure.MainActivity$NativeBridge { @android.webkit.JavascriptInterface <methods>; }

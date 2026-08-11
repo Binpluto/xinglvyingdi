@@ -1,6 +1,7 @@
 import {
   assertSameOrigin,
   clearSessionCookie,
+  deleteAccount,
   deleteSession,
   getAppUser,
   loginAccount,
@@ -17,6 +18,9 @@ const publicErrors = new Set([
   "邮箱或密码不正确",
   "尝试次数过多，请 15 分钟后再试",
   "请求来源无效",
+  "请先登录后再删除账号",
+  "账号不存在或已经删除",
+  "密码不正确，账号未删除",
   "未知操作",
 ]);
 
@@ -45,6 +49,13 @@ export async function POST(request: Request) {
     action = body.action;
     if (action === "logout") {
       await deleteSession(request);
+      return Response.json(
+        { ok: true },
+        { headers: { ...noStore, "Set-Cookie": clearSessionCookie(request) } },
+      );
+    }
+    if (action === "delete-account") {
+      await deleteAccount(request, body.password ?? "");
       return Response.json(
         { ok: true },
         { headers: { ...noStore, "Set-Cookie": clearSessionCookie(request) } },

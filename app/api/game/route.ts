@@ -12,6 +12,8 @@ type UserRow = {
   xp: number;
   coins: number;
   focus_minutes: number;
+  avatar_key: string;
+  custom_avatar: string | null;
 };
 
 type CalendarEvent = {
@@ -335,6 +337,26 @@ function makeCode(prefix: string, value: string) {
   return `${prefix}${(hash >>> 0).toString(36).toUpperCase().slice(0, 7)}`;
 }
 
+const avatarLevels: Record<string, number> = {
+  initial: 1,
+  dawn: 100,
+  quill: 125,
+  ember: 150,
+  tide: 200,
+  storm: 300,
+  verdant: 500,
+  polar: 700,
+  crown: 1000,
+  custom: 100,
+};
+
+async function addNotification(userEmail: string, kind: string, title: string, body: string, entityId?: number | null) {
+  await env.DB.prepare(`
+    INSERT INTO site_notifications (user_email, kind, title, body, entity_id)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(userEmail, kind, title.slice(0, 80), body.slice(0, 220), entityId ?? null).run();
+}
+
 async function currentUser(request: Request) {
   const identity = await getAppUser(request);
   if (!identity) return null;
@@ -487,7 +509,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     WHERE tm.user_email = ?
   `).bind(email).first();
   const members = team ? await db.prepare(`
-    SELECT u.display_name, u.email, u.xp, u.focus_minutes,
+    SELECT u.display_name, u.email, u.xp, u.focus_minutes, u.avatar_key, u.custom_avatar,
       (u.xp + u.focus_minutes * 2) AS strength
     FROM team_members tm JOIN users u ON u.email = tm.user_email
     WHERE tm.team_id = ? ORDER BY strength DESC
@@ -508,6 +530,40 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     WHERE ti.invitee_email = ? AND ti.status = 'pending'
     ORDER BY ti.id DESC
   `).bind(email).all();
+  const pendingFriendInvitations = await db.prepare(`
+    SELECT fi.id, fi.inviter_email AS inviterEmail, u.display_name AS inviterName,
+      u.avatar_key AS avatarKey, u.custom_avatar AS customAvatar, fi.created_at AS createdAt
+    FROM friend_invitations fi
+    JOIN users u ON u.email = fi.inviter_email
+    WHERE fi.invitee_email = ? AND fi.status = 'pending'
+    ORDER BY fi.id DESC
+  `).bind(email).all();
+  const teamPendingJoinRequests = team ? await db.prepare(`
+    SELECT jr.id, jr.applicant_email AS applicantEmail, u.display_name AS applicantName,
+      u.avatar_key AS avatarKey, u.custom_avatar AS customAvatar, jr.created_at AS createdAt,
+      (SELECT COUNT(*) FROM team_join_request_votes v WHERE v.request_id = jr.id AND v.decision = 'approve') AS approvals,
+      (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = jr.team_id) AS requiredApprovals,
+      (SELECT decision FROM team_join_request_votes mine WHERE mine.request_id = jr.id AND mine.voter_email = ?) AS myVote
+    FROM team_join_requests jr
+    JOIN users u ON u.email = jr.applicant_email
+    WHERE jr.team_id = ? AND jr.status = 'pending'
+    ORDER BY jr.id DESC
+  `).bind(email, team.id).all() : { results: [] };
+  const myTeamJoinRequests = await db.prepare(`
+    SELECT jr.id, jr.status, jr.created_at AS createdAt, t.name AS teamName,
+      (SELECT COUNT(*) FROM team_join_request_votes v WHERE v.request_id = jr.id AND v.decision = 'approve') AS approvals,
+      (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = jr.team_id) AS requiredApprovals
+    FROM team_join_requests jr JOIN teams t ON t.id = jr.team_id
+    WHERE jr.applicant_email = ? AND jr.status = 'pending'
+    ORDER BY jr.id DESC
+  `).bind(email).all();
+  const notifications = await db.prepare(`
+    SELECT id, kind, title, body, entity_id AS entityId, read_at AS readAt, created_at AS createdAt
+    FROM site_notifications WHERE user_email = ? ORDER BY id DESC LIMIT 30
+  `).bind(email).all();
+  const unreadNotifications = await db.prepare(`
+    SELECT COUNT(*) AS count FROM site_notifications WHERE user_email = ? AND read_at IS NULL
+  `).bind(email).first<{ count: number }>();
   const leaderboard = await db.prepare(`
     SELECT t.id, t.name, t.code, COUNT(tm.user_email) AS members,
       SUM(u.xp + u.focus_minutes * 2) AS strength,
@@ -557,6 +613,8 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
       coins: user?.coins ?? 0,
       focusMinutes: user?.focus_minutes ?? 0,
       referralCount: referralCount?.count ?? 0,
+      avatarKey: user?.avatar_key ?? "initial",
+      customAvatar: user?.custom_avatar ?? null,
     },
     quests: quests.results,
     questActivity: questActivity.results,
@@ -572,8 +630,12 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     calendarConnection: calendarConnection
       ? { connected: true, googleEmail: calendarConnection.googleEmail, lastSyncedAt: calendarConnection.lastSyncedAt }
       : { connected: false, googleEmail: null, lastSyncedAt: null },
-    team: team ? { ...team, members: members.results, pendingInvitations: teamPendingInvitations.results } : null,
+    team: team ? { ...team, members: members.results, pendingInvitations: teamPendingInvitations.results, pendingJoinRequests: teamPendingJoinRequests.results } : null,
     pendingTeamInvitations: pendingTeamInvitations.results,
+    pendingFriendInvitations: pendingFriendInvitations.results,
+    myTeamJoinRequests: myTeamJoinRequests.results,
+    notifications: notifications.results,
+    unreadNotificationCount: unreadNotifications?.count ?? 0,
     leaderboard: leaderboard.results,
   };
 }
@@ -617,10 +679,34 @@ export async function POST(request: Request) {
       premiumEmails?: string[];
       email?: string;
       invitationId?: number;
+      requestId?: number;
+      decision?: string;
+      avatarKey?: string;
+      customAvatar?: string;
     };
     const db = env.DB;
 
-    if (body.action === "updatePremiumFreeSlots") {
+    if (body.action === "updateAvatar") {
+      const user = await db.prepare("SELECT xp FROM users WHERE email = ?").bind(identity.email).first<{ xp: number }>();
+      const level = Math.floor(Math.max(0, user?.xp ?? 0) / 100) + 1;
+      const avatarKey = (body.avatarKey ?? "").trim();
+      const requiredLevel = avatarLevels[avatarKey];
+      if (!requiredLevel) return Response.json({ error: "头像不存在" }, { status: 404 });
+      if (level < requiredLevel) return Response.json({ error: `该头像将在 Lv.${requiredLevel} 解锁` }, { status: 403 });
+      let customAvatar: string | null = null;
+      if (avatarKey === "custom") {
+        customAvatar = (body.customAvatar ?? "").trim();
+        const symbols = Array.from(customAvatar);
+        if (!customAvatar || symbols.length > 2 || /[\u0000-\u001f\u007f]/.test(customAvatar)) {
+          return Response.json({ error: "自定义头像请输入 1～2 个文字或符号" }, { status: 400 });
+        }
+      }
+      await db.prepare("UPDATE users SET avatar_key = ?, custom_avatar = ? WHERE email = ?")
+        .bind(avatarKey, customAvatar, identity.email).run();
+    } else if (body.action === "markNotificationsRead") {
+      await db.prepare("UPDATE site_notifications SET read_at = CURRENT_TIMESTAMP WHERE user_email = ? AND read_at IS NULL")
+        .bind(identity.email).run();
+    } else if (body.action === "updatePremiumFreeSlots") {
       await updatePremiumFreeSlots(identity.email, Array.isArray(body.premiumEmails) ? body.premiumEmails : []);
     } else if (body.action === "completeRealmTask") {
       const realmId = body.realmId ?? "";
@@ -788,6 +874,54 @@ export async function POST(request: Request) {
           ON CONFLICT(user_email, item_key) DO UPDATE SET quantity = quantity + 1, acquired_at = CURRENT_TIMESTAMP
         `).bind(identity.email, body.itemKey),
       ]);
+    } else if (body.action === "sendFriendInvitation") {
+      const inviteeEmail = (body.email ?? "").trim().toLowerCase().slice(0, 254);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteeEmail)) {
+        return Response.json({ error: "请输入有效的注册邮箱" }, { status: 400 });
+      }
+      if (inviteeEmail === identity.email) return Response.json({ error: "不能邀请自己" }, { status: 400 });
+      const invitee = await db.prepare("SELECT invited_by AS invitedBy FROM users WHERE email = ?")
+        .bind(inviteeEmail).first<{ invitedBy: string | null }>();
+      if (!invitee) return Response.json({ error: "该邮箱尚未注册，请改用外部邮箱邀请链接" }, { status: 404 });
+      if (invitee.invitedBy) return Response.json({ error: "该旅行者已经绑定过邀请人" }, { status: 400 });
+      const existing = await db.prepare("SELECT status FROM friend_invitations WHERE inviter_email = ? AND invitee_email = ?")
+        .bind(identity.email, inviteeEmail).first<{ status: string }>();
+      if (existing?.status === "pending") return Response.json({ error: "邀请已经送达，请等待对方处理" }, { status: 400 });
+      const invitation = await db.prepare(`
+        INSERT INTO friend_invitations (inviter_email, invitee_email)
+        VALUES (?, ?)
+        ON CONFLICT(inviter_email, invitee_email) DO UPDATE SET
+          status = 'pending', responded_at = NULL, created_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `).bind(identity.email, inviteeEmail).first<{ id: number }>();
+      await addNotification(inviteeEmail, "friend_invite", "收到好友同行邀请", `${identity.displayName} 邀请你绑定同行关系，接受后双方都会获得 EXP 与星辉。`, invitation?.id);
+    } else if (body.action === "acceptFriendInvitation") {
+      const invitationId = Number(body.invitationId);
+      const invitation = await db.prepare(`
+        SELECT fi.id, fi.inviter_email AS inviterEmail, u.invited_by AS invitedBy
+        FROM friend_invitations fi JOIN users u ON u.email = fi.invitee_email
+        WHERE fi.id = ? AND fi.invitee_email = ? AND fi.status = 'pending'
+      `).bind(invitationId, identity.email).first<{ id: number; inviterEmail: string; invitedBy: string | null }>();
+      if (!invitation) return Response.json({ error: "好友邀请不存在或已经处理" }, { status: 404 });
+      if (invitation.invitedBy) return Response.json({ error: "你已经绑定过邀请人" }, { status: 400 });
+      await db.batch([
+        db.prepare("INSERT INTO referrals (referrer_email, invitee_email) VALUES (?, ?)").bind(invitation.inviterEmail, identity.email),
+        db.prepare("UPDATE users SET invited_by = ?, xp = xp + 100, coins = coins + 80 WHERE email = ?").bind(invitation.inviterEmail, identity.email),
+        db.prepare("UPDATE users SET xp = xp + 200, coins = coins + 120 WHERE email = ?").bind(invitation.inviterEmail),
+        db.prepare("UPDATE friend_invitations SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(invitation.id),
+        db.prepare("UPDATE friend_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP WHERE invitee_email = ? AND status = 'pending' AND id != ?").bind(identity.email, invitation.id),
+      ]);
+      await addNotification(invitation.inviterEmail, "friend_invite_accepted", "好友邀请已接受", `${identity.displayName} 已接受你的同行邀请，奖励已经发放。`, invitation.id);
+    } else if (body.action === "declineFriendInvitation") {
+      const invitationId = Number(body.invitationId);
+      const invitation = await db.prepare(`
+        SELECT id, inviter_email AS inviterEmail FROM friend_invitations
+        WHERE id = ? AND invitee_email = ? AND status = 'pending'
+      `).bind(invitationId, identity.email).first<{ id: number; inviterEmail: string }>();
+      if (!invitation) return Response.json({ error: "好友邀请不存在或已经处理" }, { status: 404 });
+      await db.prepare("UPDATE friend_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP WHERE id = ?")
+        .bind(invitation.id).run();
+      await addNotification(invitation.inviterEmail, "friend_invite_declined", "好友邀请未被接受", `${identity.displayName} 暂时没有接受你的同行邀请。`, invitation.id);
     } else if (body.action === "redeemInvite") {
       const code = (body.code ?? "").trim().toUpperCase();
       const me = await db.prepare("SELECT invite_code, invited_by FROM users WHERE email = ?")
@@ -832,15 +966,18 @@ export async function POST(request: Request) {
       const existingInvitation = await db.prepare(`
         SELECT status FROM team_invitations WHERE team_id = ? AND invitee_email = ?
       `).bind(ownedTeam.id, inviteeEmail).first<{ status: string }>();
+      if (existingInvitation?.status === "pending") return Response.json({ error: "小组邀请已经送达，请等待对方处理" }, { status: 400 });
       const reservedPlaces = ownedTeam.members + ownedTeam.pendingInvites - (existingInvitation?.status === "pending" ? 1 : 0);
       if (reservedPlaces >= 5) return Response.json({ error: "小组成员与待确认邀请已达到 5 人上限" }, { status: 400 });
-      await db.prepare(`
+      const teamInvitation = await db.prepare(`
         INSERT INTO team_invitations (team_id, inviter_email, invitee_email)
         VALUES (?, ?, ?)
         ON CONFLICT(team_id, invitee_email) DO UPDATE SET
           inviter_email = excluded.inviter_email,
           status = 'pending', responded_at = NULL, created_at = CURRENT_TIMESTAMP
-      `).bind(ownedTeam.id, identity.email, inviteeEmail).run();
+        RETURNING id
+      `).bind(ownedTeam.id, identity.email, inviteeEmail).first<{ id: number }>();
+      await addNotification(inviteeEmail, "team_invite", "收到小组邀请", `${identity.displayName} 邀请你加入小组，前往小组页接受或拒绝。`, teamInvitation?.id);
     } else if (body.action === "acceptTeamInvitation") {
       const invitationId = Number(body.invitationId);
       const invitation = await db.prepare(`
@@ -858,24 +995,94 @@ export async function POST(request: Request) {
         db.prepare("UPDATE team_invitations SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(invitation.id),
         db.prepare("UPDATE team_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP WHERE invitee_email = ? AND status = 'pending' AND id != ?").bind(identity.email, invitation.id),
       ]);
+      const owner = await db.prepare("SELECT owner_email AS ownerEmail FROM teams WHERE id = ?")
+        .bind(invitation.teamId).first<{ ownerEmail: string }>();
+      if (owner?.ownerEmail) await addNotification(owner.ownerEmail, "team_invite_accepted", "新成员已加入", `${identity.displayName} 已接受邀请并加入你的小组。`, invitation.id);
     } else if (body.action === "declineTeamInvitation") {
       const invitationId = Number(body.invitationId);
+      const invitation = await db.prepare(`
+        SELECT id, inviter_email AS inviterEmail FROM team_invitations
+        WHERE id = ? AND invitee_email = ? AND status = 'pending'
+      `).bind(invitationId, identity.email).first<{ id: number; inviterEmail: string }>();
+      if (!invitation) return Response.json({ error: "邀请不存在或已经处理" }, { status: 404 });
       const updated = await db.prepare(`
         UPDATE team_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP
         WHERE id = ? AND invitee_email = ? AND status = 'pending'
       `).bind(invitationId, identity.email).run();
       if (!updated.meta.changes) return Response.json({ error: "邀请不存在或已经处理" }, { status: 404 });
-    } else if (body.action === "joinTeam") {
+      await addNotification(invitation.inviterEmail, "team_invite_declined", "小组邀请未被接受", `${identity.displayName} 暂时没有接受你的小组邀请。`, invitation.id);
+    } else if (body.action === "requestJoinTeam") {
       const code = (body.code ?? "").trim().toUpperCase();
       const exists = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(identity.email).first();
       if (exists) return Response.json({ error: "你已经加入了一个小组" }, { status: 400 });
+      const existingRequest = await db.prepare("SELECT team_id AS teamId FROM team_join_requests WHERE applicant_email = ? AND status = 'pending'")
+        .bind(identity.email).first<{ teamId: number }>();
       const team = await db.prepare(`
-        SELECT t.id, COUNT(tm.user_email) AS members FROM teams t
+        SELECT t.id, t.name, COUNT(tm.user_email) AS members FROM teams t
         LEFT JOIN team_members tm ON tm.team_id = t.id WHERE t.code = ? GROUP BY t.id
-      `).bind(code).first<{ id: number; members: number }>();
+      `).bind(code).first<{ id: number; name: string; members: number }>();
       if (!team) return Response.json({ error: "小组口令不存在" }, { status: 404 });
       if (team.members >= 5) return Response.json({ error: "该小组已经满员（最多 5 人）" }, { status: 400 });
-      await db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(team.id, identity.email).run();
+      if (existingRequest && existingRequest.teamId !== team.id) {
+        return Response.json({ error: "你已有一项待表决的入组申请，请等待结果" }, { status: 400 });
+      }
+      if (existingRequest?.teamId === team.id) return Response.json({ error: "该入组申请正在表决中" }, { status: 400 });
+      const request = await db.prepare(`
+        INSERT INTO team_join_requests (team_id, applicant_email)
+        VALUES (?, ?)
+        ON CONFLICT(team_id, applicant_email) DO UPDATE SET
+          status = 'pending', responded_at = NULL, created_at = CURRENT_TIMESTAMP
+        RETURNING id
+      `).bind(team.id, identity.email).first<{ id: number }>();
+      await db.prepare("DELETE FROM team_join_request_votes WHERE request_id = ?").bind(request?.id).run();
+      const recipients = await db.prepare("SELECT user_email AS email FROM team_members WHERE team_id = ?")
+        .bind(team.id).all<{ email: string }>();
+      for (const recipient of recipients.results) {
+        await addNotification(recipient.email, "team_join_request", "收到入组申请", `${identity.displayName} 申请加入「${team.name}」，需要所有现有成员同意。`, request?.id);
+      }
+    } else if (body.action === "voteTeamJoinRequest") {
+      const requestId = Number(body.requestId);
+      const decision = body.decision === "reject" ? "reject" : body.decision === "approve" ? "approve" : "";
+      if (!decision) return Response.json({ error: "请选择同意或拒绝" }, { status: 400 });
+      const request = await db.prepare(`
+        SELECT jr.id, jr.team_id AS teamId, jr.applicant_email AS applicantEmail,
+          t.name AS teamName,
+          (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = jr.team_id) AS members
+        FROM team_join_requests jr JOIN teams t ON t.id = jr.team_id
+        WHERE jr.id = ? AND jr.status = 'pending'
+          AND EXISTS (SELECT 1 FROM team_members own WHERE own.team_id = jr.team_id AND own.user_email = ?)
+      `).bind(requestId, identity.email).first<{ id: number; teamId: number; applicantEmail: string; teamName: string; members: number }>();
+      if (!request) return Response.json({ error: "申请不存在、已处理或你无权表决" }, { status: 404 });
+      await db.prepare(`
+        INSERT INTO team_join_request_votes (request_id, voter_email, decision)
+        VALUES (?, ?, ?)
+        ON CONFLICT(request_id, voter_email) DO UPDATE SET decision = excluded.decision, created_at = CURRENT_TIMESTAMP
+      `).bind(request.id, identity.email, decision).run();
+      if (decision === "reject") {
+        await db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE id = ?")
+          .bind(request.id).run();
+        await addNotification(request.applicantEmail, "team_join_rejected", "入组申请未通过", `「${request.teamName}」的成员暂未通过你的入组申请。`, request.id);
+      } else {
+        const approvals = await db.prepare("SELECT COUNT(*) AS count FROM team_join_request_votes WHERE request_id = ? AND decision = 'approve'")
+          .bind(request.id).first<{ count: number }>();
+        if ((approvals?.count ?? 0) >= request.members) {
+          const membership = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(request.applicantEmail).first();
+          const memberCount = await db.prepare("SELECT COUNT(*) AS count FROM team_members WHERE team_id = ?")
+            .bind(request.teamId).first<{ count: number }>();
+          if (membership) {
+            await db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE id = ?")
+              .bind(request.id).run();
+            return Response.json({ error: "申请人已经加入了其他小组" }, { status: 400 });
+          }
+          if ((memberCount?.count ?? 0) >= 5) return Response.json({ error: "小组已经满员" }, { status: 400 });
+          await db.batch([
+            db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(request.teamId, request.applicantEmail),
+            db.prepare("UPDATE team_join_requests SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(request.id),
+            db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE applicant_email = ? AND status = 'pending' AND id != ?").bind(request.applicantEmail, request.id),
+          ]);
+          await addNotification(request.applicantEmail, "team_join_accepted", "入组申请已通过", `「${request.teamName}」全体成员已同意，你现在已经加入小组。`, request.id);
+        }
+      }
     } else {
       return Response.json({ error: "未知操作" }, { status: 400 });
     }

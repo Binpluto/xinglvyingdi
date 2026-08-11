@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
-type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number };
+type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number; avatar_key: string; custom_avatar: string | null };
 type TeamInvitation = { id: number; teamId: number; teamName: string; inviterName: string; memberCount: number; createdAt: string };
-type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[]; pendingInvitations: Array<{ id: number; inviteeEmail: string; createdAt: string }> };
+type FriendInvitation = { id: number; inviterEmail: string; inviterName: string; avatarKey: string; customAvatar: string | null; createdAt: string };
+type TeamJoinRequest = { id: number; applicantEmail: string; applicantName: string; avatarKey: string; customAvatar: string | null; approvals: number; requiredApprovals: number; myVote: "approve" | "reject" | null; createdAt: string };
+type MyTeamJoinRequest = { id: number; teamName: string; status: string; approvals: number; requiredApprovals: number; createdAt: string };
+type SiteNotification = { id: number; kind: string; title: string; body: string; entityId: number | null; readAt: string | null; createdAt: string };
+type Team = { id: number; name: string; code: string; owner_email: string; member_count: number; members: Member[]; pendingInvitations: Array<{ id: number; inviteeEmail: string; createdAt: string }>; pendingJoinRequests: TeamJoinRequest[] };
 type RankTeam = { id: number; name: string; code: string; members: number; strength: number; focus_minutes: number };
 type FocusRecord = { id: number; minutes: number; created_at: string };
 type QuestActivityDay = { date: string; count: number };
@@ -19,7 +23,7 @@ type CalendarConnection = { connected: boolean; googleEmail: string | null; last
 type CalendarAccess = { active: boolean; status: "free" | "founder" | "trial" | "paid" | "level_reward" | "expired"; accessUntil: string | null; trialStartedAt: string | null; trialAvailable: boolean; daysRemaining: number; levelRewardEligible: boolean; levelRewardClaimed: boolean };
 type PremiumProgram = { isAdmin: boolean; isFreeMember: boolean; maxSlots: number; occupiedSlots: number; slots: Array<{ slot: number; email: string | null }> };
 type GameData = {
-  user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number };
+  user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number; avatarKey: string; customAvatar: string | null };
   quests: Quest[];
   questActivity: QuestActivityDay[];
   questCompletionTotal: number;
@@ -34,6 +38,10 @@ type GameData = {
   premiumProgram: PremiumProgram;
   team: Team | null;
   pendingTeamInvitations: TeamInvitation[];
+  pendingFriendInvitations: FriendInvitation[];
+  myTeamJoinRequests: MyTeamJoinRequest[];
+  notifications: SiteNotification[];
+  unreadNotificationCount: number;
   leaderboard: RankTeam[];
 };
 
@@ -79,6 +87,23 @@ continents.forEach((continent) => Object.assign(continent, advancedRealmMeta[con
 const nav = [["营地", "⌂"], ["任务", "✦"], ["专注", "◷"], ["行囊", "◇"], ["小组", "♙"], ["世界", "◎"]];
 const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+const avatarCatalog = [
+  { key: "initial", symbol: "初", name: "初心印记", level: 1 },
+  { key: "dawn", symbol: "☼", name: "曦华晨星", level: 100 },
+  { key: "quill", symbol: "✒", name: "苍冠羽笔", level: 125 },
+  { key: "ember", symbol: "☀", name: "赤土烈阳", level: 150 },
+  { key: "tide", symbol: "≈", name: "珊海潮歌", level: 200 },
+  { key: "storm", symbol: "↯", name: "风暴先驱", level: 300 },
+  { key: "verdant", symbol: "❧", name: "森灵之心", level: 500 },
+  { key: "polar", symbol: "✦", name: "极星之证", level: 700 },
+  { key: "crown", symbol: "♛", name: "千级星冠", level: 1000 },
+] as const;
+function avatarGlyph(user: { name?: string; display_name?: string; avatarKey?: string; avatar_key?: string; customAvatar?: string | null; custom_avatar?: string | null }) {
+  const key = user.avatarKey ?? user.avatar_key ?? "initial";
+  if (key === "initial") return (user.name ?? user.display_name ?? "旅").slice(0, 1);
+  if (key === "custom") return user.customAvatar ?? user.custom_avatar ?? (user.name ?? user.display_name ?? "旅").slice(0, 1);
+  return avatarCatalog.find((avatar) => avatar.key === key)?.symbol ?? (user.name ?? user.display_name ?? "旅").slice(0, 1);
+}
 const milestoneCopy = (level: number) => {
   const smallChapters = [
     { title: "十阶星光", message: "又一段旅程被你稳稳走完。微小但持续的行动，正在改变远方。" },
@@ -206,6 +231,7 @@ const sortQuests = (quests: Quest[]) => {
 const taskActivityLevel = (count: number) => count <= 0 ? 0 : count === 1 ? 1 : count === 2 ? 2 : count === 3 ? 3 : 4;
 
 const QUEST_ENERGY: Record<string, number> = { "主线": 20, "支线": 14, "日常": 10 };
+const DAILY_ENERGY_GOAL = 150;
 function campEnergy(data: GameData) {
   const today = localDateKey(new Date());
   const completedToday = data.quests.filter((quest) => {
@@ -215,20 +241,21 @@ function campEnergy(data: GameData) {
   });
   const taskEnergy = completedToday.reduce((total, quest) => total + (QUEST_ENERGY[quest.type] ?? 10), 0);
   const focusEnergy = Math.min(40, Math.floor(data.todayFocusMinutes / 2));
-  const value = Math.min(100, 15 + taskEnergy + focusEnergy);
+  const score = taskEnergy + focusEnergy;
+  const progress = Math.min(100, Math.round((score / DAILY_ENERGY_GOAL) * 100));
   const main = completedToday.filter((quest) => quest.type === "主线").length;
   const side = completedToday.filter((quest) => quest.type === "支线").length;
   const daily = completedToday.filter((quest) => quest.type === "日常").length;
-  const weather = value >= 90
-    ? { tone: "aurora", icon: "✧", label: "极光满营", message: "能量已经抵达今日巅峰，营地上空出现了极光。" }
-    : value >= 70
-      ? { tone: "radiant", icon: "✦", label: "星辉灿烂", message: "连续行动汇成星辉，营地正闪耀着充沛能量。" }
-      : value >= 45
-        ? { tone: "sunny", icon: "☀", label: "晴光充盈", message: "专注与行动正在驱散云层，营地逐渐明亮。" }
-        : value >= 25
-          ? { tone: "breeze", icon: "◐", label: "微风渐晴", message: "今天的第一批能量已经抵达，再向前一步吧。" }
-          : { tone: "mist", icon: "☁", label: "星雾初醒", message: "营地仍笼罩着晨雾，开始一次专注或完成任务即可点亮。" };
-  return { value, taskEnergy, focusEnergy, completedToday: completedToday.length, main, side, daily, ...weather };
+  const state = score >= 120
+    ? { tone: "green-deep", icon: "✧", label: "深绿巅峰", message: "今日行动力已经抵达巅峰，深绿色能量正照亮整个营地。" }
+    : score >= 90
+      ? { tone: "green", icon: "✦", label: "能量充盈", message: "稳定的专注与完成正在累积，今日能量十分充盈。" }
+      : score >= 60
+        ? { tone: "green-soft", icon: "☀", label: "状态良好", message: "今日状态已经进入绿色区间，继续保持这份节奏。" }
+        : score >= 30
+          ? { tone: "orange", icon: "◐", label: "逐渐升温", message: "能量正在回升，再完成一项任务就更接近绿色区间。" }
+          : { tone: "red", icon: "☁", label: "等待点亮", message: "今日能量仍然偏低，开始一次专注或完成任务即可推进。" };
+  return { score, progress, taskEnergy, focusEnergy, completedToday: completedToday.length, main, side, daily, ...state };
 }
 
 type FocusAlertMode = "both" | "popup" | "sound" | "silent";
@@ -323,7 +350,7 @@ function playFocusChime(context: AudioContext) {
   });
 }
 
-export default function GameClient({ identity, onLogout }: { identity: { email: string; name: string }; onLogout: () => Promise<void> }) {
+export default function GameClient({ identity, onLogout, onDeleteAccount }: { identity: { email: string; name: string }; onLogout: () => Promise<void>; onDeleteAccount: (password: string) => Promise<void> }) {
   const [data, setData] = useState<GameData | null>(null);
   const [tab, setTab] = useState("营地");
   const [timer, setTimer] = useState(25 * 60);
@@ -339,6 +366,12 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   const [levelMilestone, setLevelMilestone] = useState<number | null>(null);
   const [activeRealmId, setActiveRealmId] = useState<string | null>(null);
   const [showLevelGuide, setShowLevelGuide] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
+  const [customAvatarDraft, setCustomAvatarDraft] = useState("");
+  const [showAccountDeletion, setShowAccountDeletion] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const alertAudioRef = useRef<AudioContext | null>(null);
   const ambientAudioRef = useRef<AmbientSession | null>(null);
 
@@ -474,6 +507,14 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
     if (redeemed) window.history.replaceState({}, "", window.location.pathname);
   }
 
+  async function toggleInbox() {
+    const opening = !showInbox;
+    setShowInbox(opening);
+    if (!opening || !data?.unreadNotificationCount) return;
+    const res = await fetch("/api/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "markNotificationsRead", clientDate: localDateKey(new Date()) }) });
+    if (res.ok) setData(await res.json());
+  }
+
   function toggleFocusTimer() {
     if (!running) {
       if (!alertAudioRef.current || alertAudioRef.current.state === "closed") {
@@ -492,6 +533,18 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
   function changeAmbientSound(sound: AmbientSound) {
     setAmbientSound(sound);
     window.localStorage.setItem("starcamp-focus-ambient", sound);
+  }
+
+  async function permanentlyDeleteAccount() {
+    if (!deletePassword) return;
+    setDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      await onDeleteAccount(deletePassword);
+    } catch (error) {
+      setDeleteAccountError(error instanceof Error ? error.message : "账号删除失败，请稍后重试");
+      setDeletingAccount(false);
+    }
   }
 
   const time = useMemo(() => `${String(Math.floor(timer / 60)).padStart(2, "0")}:${String(timer % 60).padStart(2, "0")}`, [timer]);
@@ -527,16 +580,22 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
             {activeRealm && <div className="realm-status"><span>{activeRealm.icon}</span><div><small>当前驻扎</small><b>{activeRealm.name}</b></div><button onClick={() => setTab("世界")}>切换</button><button aria-label="离开当前大陆" onClick={() => { setActiveRealmId(null); window.localStorage.removeItem("starcamp-active-realm"); }}>×</button></div>}
             <div className="cloud-state"><i /> 云端已同步</div>
             <div className="currency"><span>✦</span><b>{coins}</b></div>
+            <div className="notification-menu">
+              <button className="notification-button" aria-label={`星邮通知，${data.unreadNotificationCount} 条未读`} aria-expanded={showInbox} onClick={() => void toggleInbox()}><span>✉</span>{data.unreadNotificationCount > 0 && <i>{Math.min(99, data.unreadNotificationCount)}</i>}</button>
+              {showInbox && <aside className="notification-popover"><div className="notification-heading"><div><small>STARCAMP POST</small><b>星邮通知中心</b></div><button aria-label="关闭星邮" onClick={() => setShowInbox(false)}>×</button></div>{data.notifications.length ? <div className="notification-list">{data.notifications.map((notice) => <button key={notice.id} className={notice.readAt ? "read" : "unread"} onClick={() => { setShowInbox(false); setTab("小组"); }}><span>{notice.kind.includes("friend") ? "☼" : notice.kind.includes("team") ? "♙" : "✦"}</span><div><b>{notice.title}</b><p>{notice.body}</p><small>{new Date(notice.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small></div></button>)}</div> : <div className="notification-empty"><span>◇</span><p>暂时没有新的星邮<br/>邀请和入组申请会出现在这里。</p></div>}<small className="notification-note">当前仅提供邀请与审批通知，不开放陌生人自由聊天。</small></aside>}
+            </div>
             <div className="level-menu">
-              <button className="avatar" aria-label="查看升级规则" aria-expanded={showLevelGuide} onClick={() => setShowLevelGuide((visible) => !visible)}><span>{displayName.slice(0, 1)}</span><em>Lv. {level}</em></button>
+              <button className="avatar" aria-label="查看升级规则与头像" aria-expanded={showLevelGuide} onClick={() => { setShowInbox(false); setShowLevelGuide((visible) => !visible); }}><span>{avatarGlyph(data.user)}</span><em>Lv. {level}</em></button>
               {showLevelGuide && <aside className="level-guide">
                 <div className="level-guide-head"><span>Lv.{level}</span><div><small>距离 Lv.{level + 1}</small><b>{levelXp} / {XP_PER_LEVEL} EXP</b></div><button aria-label="关闭升级说明" onClick={() => setShowLevelGuide(false)}>×</button></div>
                 <div className="level-guide-progress"><i style={{ width: `${levelXp}%` }} /></div>
                 <h4>旅行者升级规则</h4>
                 <p>从 Lv.1、0 EXP 开始，每累计 100 EXP 提升 1 级。</p>
                 <ul><li><span>完成任务</span><b>+25～80 EXP</b></li><li><span>专注修行</span><b>每分钟 +2 EXP</b></li><li><span>邀请好友</span><b>双方 +100 / +200 EXP</b></li></ul>
+                <div className="avatar-unlock-panel"><div><b>百级头像工坊</b><small>{level < 100 ? `Lv.100 开放 · 还差 ${100 - level} 级` : "等级越高，可选择的头像越多"}</small></div><div className="avatar-choice-grid">{avatarCatalog.map((choice) => { const unlocked = level >= choice.level; return <button key={choice.key} className={data.user.avatarKey === choice.key ? "selected" : ""} disabled={!unlocked} title={unlocked ? choice.name : `Lv.${choice.level} 解锁`} onClick={() => void act({ action: "updateAvatar", avatarKey: choice.key }, `已换上「${choice.name}」头像`)}><span>{choice.key === "initial" ? displayName.slice(0, 1) : choice.symbol}</span><small>{unlocked ? choice.name : `Lv.${choice.level}`}</small></button>})}</div>{level >= 100 && <div className="custom-avatar-row"><label><span>自定义文字/符号头像</span><input value={customAvatarDraft} onChange={(event) => setCustomAvatarDraft(Array.from(event.target.value).slice(0, 2).join(""))} placeholder="如：🌙 或 旅" /></label><button disabled={!customAvatarDraft.trim()} onClick={() => void act({ action: "updateAvatar", avatarKey: "custom", customAvatar: customAvatarDraft }, "自定义头像已保存到云端")}>使用</button></div>}</div>
                 <div className="continent-level-rules"><b>大陆解锁门槛</b>{continents.map((realm) => <span key={realm.id}><i>{realm.icon}</i>{realm.name}<em>{realm.id === "dawn" ? "默认解锁" : `${realm.xpRequired} EXP · ${realm.difficulty}`}</em></span>)}</div>
                 <small className="level-world-note">曦华大陆默认开放。其余大陆按固定顺序解锁，必须同时完成前一大陆试炼，并达到经验、系统任务、专注、邀请好友和小组人数门槛。</small>
+                <div className="account-data-actions"><a href="/privacy.html" target="_blank" rel="noreferrer">隐私政策</a><button onClick={() => { setShowLevelGuide(false); setShowAccountDeletion(true); }}>删除账号与云端数据</button></div>
               </aside>}
             </div>
           </div>
@@ -554,6 +613,7 @@ export default function GameClient({ identity, onLogout }: { identity: { email: 
       {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void redeemFriendInvite()}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
+      {showAccountDeletion && <div className="account-delete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingAccount) setShowAccountDeletion(false); }}><section className="account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="account-delete-title"><button aria-label="关闭删除账号窗口" onClick={() => setShowAccountDeletion(false)} disabled={deletingAccount}>×</button><span>◇</span><small>ACCOUNT &amp; CLOUD DATA</small><h2 id="account-delete-title">永久删除账号</h2><p>任务、专注记录、队伍关系、世界进度、日历连接和权益记录将从云端永久删除，且无法恢复。</p><label><b>输入当前密码确认</b><input type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="当前账号密码" /></label>{deleteAccountError && <div role="alert">{deleteAccountError}</div>}<footer><button onClick={() => { setShowAccountDeletion(false); setDeletePassword(""); setDeleteAccountError(""); }} disabled={deletingAccount}>取消</button><button className="danger" onClick={() => void permanentlyDeleteAccount()} disabled={deletingAccount || !deletePassword}>{deletingAccount ? "正在删除…" : "永久删除账号"}</button></footer></section></div>}
       {levelMilestone && activeMilestoneCopy && <div className={`level-milestone-backdrop ${isGrandMilestone ? "milestone-grand" : "milestone-small"}`}>
         <div className="milestone-stars" aria-hidden="true">{Array.from({ length: isGrandMilestone ? 18 : 8 }, (_, index) => <i key={index}>✦</i>)}</div>
         <section className="level-milestone-card" role="dialog" aria-modal="true" aria-labelledby="level-milestone-title">
@@ -600,9 +660,19 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
   </div><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
-    <section className={`glass-card camp-weather weather-${energy.tone}`}>
+    <section className={`glass-card camp-weather energy-${energy.tone}`}>
       <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>
-      <div className="energy-ring" style={{ "--energy": `${energy.value}%` } as CSSProperties}><strong>{energy.value}%</strong><small>{energy.label}</small><i aria-hidden="true" /></div>
+      <div className="energy-score"><div><strong>{energy.score}</strong><small>今日积分</small></div><em>{energy.label}</em></div>
+      <div
+        className="energy-meter"
+        style={{ "--energy-progress": `${energy.progress}%` } as CSSProperties}
+        role="progressbar"
+        aria-label={`今日能量 ${energy.score} 分，${energy.label}`}
+        aria-valuemin={0}
+        aria-valuemax={DAILY_ENERGY_GOAL}
+        aria-valuenow={Math.min(energy.score, DAILY_ENERGY_GOAL)}
+      ><i aria-hidden="true" /></div>
+      <div className="energy-scale" aria-hidden="true"><span>0</span><span>30</span><span>60</span><span>90</span><span>120+</span></div>
       <div className="energy-sources" aria-label="今日能量来源">
         <span><i>◷</i><b>专注 {data.todayFocusMinutes} 分钟</b><em>+{energy.focusEnergy}</em></span>
         <span><i>✦</i><b>完成 {energy.completedToday} 项任务</b><em>+{energy.taskEnergy}</em></span>
@@ -919,17 +989,88 @@ const catalog = [
   { key:"adventure-day", icon:"⌁", name:"远方冒险日", note:"安排一场城市探索或近郊旅行", price:260, tone:"violet" },
 ];
 
+type AchievementCategory = "任务" | "专注" | "同行" | "世界" | "成长" | "收藏";
+type AchievementRarity = "bronze" | "silver" | "epic" | "legendary";
+type Achievement = {
+  icon: string;
+  name: string;
+  story: string;
+  category: AchievementCategory;
+  rarity: AchievementRarity;
+  current: number;
+  target: number;
+  unit: string;
+};
+
+const achievementRarity: Record<AchievementRarity, { label: string; stars: string }> = {
+  bronze: { label: "青铜", stars: "✦" },
+  silver: { label: "白银", stars: "✦✦" },
+  epic: { label: "史诗", stars: "✦✦✦" },
+  legendary: { label: "传说", stars: "✦✦✦✦" },
+};
+
+function activityStreak(activity: QuestActivityDay[]) {
+  const active = new Set(activity.filter((day) => day.count > 0).map((day) => day.date));
+  let cursor = new Date();
+  if (!active.has(localDateKey(cursor))) cursor.setDate(cursor.getDate() - 1);
+  let streak = 0;
+  while (active.has(localDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+  const [achievementFilter, setAchievementFilter] = useState<"全部" | AchievementCategory>("全部");
   const owned = new Map(data.inventory.map(i => [i.item_key, i.quantity]));
   const currentLevel = levelFromXp(data.user.xp);
   const honorLevels = Array.from({ length: Math.floor(currentLevel / 100) }, (_, index) => (index + 1) * 100).reverse();
-  const achievements = [
-    { icon:"✦", name:"初见之章", note:"完成第一个任务", unlocked:data.questCompletionTotal>0 },
-    { icon:"◷", name:"静心之证", note:"累计专注 60 分钟", unlocked:data.user.focusMinutes>=60 },
-    { icon:"♙", name:"同行契约", note:"加入一个五人小组", unlocked:Boolean(data.team) },
-    { icon:"☼", name:"引路星辉", note:"成功邀请一位好友", unlocked:data.user.referralCount>0 },
+  const bestQuestDay = Math.max(0, ...data.questActivity.map((day) => day.count));
+  const activeDays = data.questActivity.filter((day) => day.count > 0).length;
+  const streak = activityStreak(data.questActivity);
+  const unlockedRealms = Math.max(1, data.realmProgress.filter((realm) => realm.unlocked).length);
+  const completedRegions = data.realmProgress.reduce((total, realm) => total + realm.completedRegions, 0);
+  const teamMembers = data.team?.member_count ?? 0;
+  const achievements: Achievement[] = [
+    { icon:"✦", name:"初见之章", story:"第一份完成，让沉睡的星图亮起。", category:"任务", rarity:"bronze", current:data.questCompletionTotal, target:1, unit:"项任务" },
+    { icon:"⚔", name:"委托猎手", story:"在营地告示板留下十次可靠回应。", category:"任务", rarity:"bronze", current:data.questCompletionTotal, target:10, unit:"项任务" },
+    { icon:"♜", name:"百战手册", story:"五十次行动被写进旅行者手册。", category:"任务", rarity:"silver", current:data.questCompletionTotal, target:50, unit:"项任务" },
+    { icon:"⌘", name:"星图编年史", story:"百次完成汇聚成一部属于你的史诗。", category:"任务", rarity:"epic", current:data.questCompletionTotal, target:100, unit:"项任务" },
+    { icon:"✧", name:"三星同耀", story:"一天点亮三颗任务星，营火格外明亮。", category:"任务", rarity:"silver", current:bestQuestDay, target:3, unit:"项/单日" },
+    { icon:"☄", name:"七曜不断", story:"连续七天留下足迹，让航线不再中断。", category:"任务", rarity:"epic", current:streak, target:7, unit:"天连续" },
+    { icon:"▦", name:"足迹收藏家", story:"认真生活的日期，已经铺满一段星路。", category:"任务", rarity:"silver", current:activeDays, target:30, unit:"个活跃日" },
+    { icon:"◷", name:"静心之证", story:"在六十分钟的安静里听见内心。", category:"专注", rarity:"bronze", current:data.user.focusMinutes, target:60, unit:"分钟" },
+    { icon:"⌛", name:"深潜者", story:"穿过五小时无声海域，带回专注宝藏。", category:"专注", rarity:"silver", current:data.user.focusMinutes, target:300, unit:"分钟" },
+    { icon:"◇", name:"时间铸匠", story:"把一千分钟锻造成真正可见的实力。", category:"专注", rarity:"epic", current:data.user.focusMinutes, target:1000, unit:"分钟" },
+    { icon:"♢", name:"万籁宗师", story:"三千分钟心无旁骛，世界为你暂时安静。", category:"专注", rarity:"legendary", current:data.user.focusMinutes, target:3000, unit:"分钟" },
+    { icon:"♙", name:"同行契约", story:"不再独行，与伙伴共享第一簇营火。", category:"同行", rarity:"bronze", current:data.team ? 1 : 0, target:1, unit:"个小组" },
+    { icon:"♟", name:"五曜结阵", story:"五位旅行者集结，组成完整远征小队。", category:"同行", rarity:"epic", current:teamMembers, target:5, unit:"位成员" },
+    { icon:"☼", name:"引路星辉", story:"为一位新旅行者指出营地的方向。", category:"同行", rarity:"bronze", current:data.user.referralCount, target:1, unit:"位好友" },
+    { icon:"♧", name:"灯塔守望者", story:"三位同行者循着你的灯塔抵达。", category:"同行", rarity:"silver", current:data.user.referralCount, target:3, unit:"位好友" },
+    { icon:"♛", name:"星门领航员", story:"十位旅行者因你相遇，星门为此长明。", category:"同行", rarity:"legendary", current:data.user.referralCount, target:10, unit:"位好友" },
+    { icon:"☀", name:"曦华初醒", story:"踏上初始大陆，晨光正式照进旅程。", category:"世界", rarity:"bronze", current:unlockedRealms, target:1, unit:"座大陆" },
+    { icon:"≈", name:"跨海旅人", story:"越过第一片海，见到另一种大陆色彩。", category:"世界", rarity:"silver", current:unlockedRealms, target:2, unit:"座大陆" },
+    { icon:"◎", name:"四境巡礼", story:"四方风土已经在你的地图上留下纹章。", category:"世界", rarity:"epic", current:unlockedRealms, target:4, unit:"座大陆" },
+    { icon:"✺", name:"七洲星冠", story:"七座大陆共同承认你的世界旅行者之名。", category:"世界", rarity:"legendary", current:unlockedRealms, target:7, unit:"座大陆" },
+    { icon:"⚑", name:"秘境征服者", story:"通过三处大陆试炼，获得守门者认可。", category:"世界", rarity:"silver", current:completedRegions, target:3, unit:"处试炼" },
+    { icon:"❂", name:"世界之心", story:"完成二十一处大陆试炼，触碰世界核心。", category:"世界", rarity:"legendary", current:completedRegions, target:21, unit:"处试炼" },
+    { icon:"Ⅰ", name:"十阶新星", story:"抵达十级，第一次被群星记住名字。", category:"成长", rarity:"bronze", current:currentLevel, target:10, unit:"级" },
+    { icon:"Ⅴ", name:"半百远征", story:"五十级不是中点，而是一段强大证明。", category:"成长", rarity:"epic", current:currentLevel, target:50, unit:"级" },
+    { icon:"Ⅹ", name:"百级传说", story:"跨越百级门槛，获得专属远征奖状。", category:"成长", rarity:"legendary", current:currentLevel, target:100, unit:"级" },
+    { icon:"▣", name:"星历相连", story:"让现实日程穿过星门，成为每日委托。", category:"收藏", rarity:"silver", current:data.calendarConnection.connected ? 1 : 0, target:1, unit:"个日历" },
+    { icon:"◈", name:"心愿收藏家", story:"把四种奖励装进行囊，认真犒赏自己。", category:"收藏", rarity:"epic", current:data.inventory.length, target:4, unit:"种奖励" },
   ];
-  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就</small><h3>冒险徽章</h3></div><b>{achievements.filter(a=>a.unlocked).length}/{achievements.length} 已解锁</b></div><div className="achievement-grid">{achievements.map(a=><article key={a.name} className={a.unlocked ? "" : "locked"}><span>{a.icon}</span><b>{a.name}</b><small>{a.note}</small><em>{a.unlocked ? "已获得" : "未解锁"}</em></article>)}</div><div className="honor-certificate-archive"><div className="honor-archive-heading"><div><small>百级远征荣誉</small><h3>专属荣誉奖状</h3></div><span>每 100 级解锁一张 · 包含分享码</span></div>{honorLevels.length ? <div className="honor-certificate-list">{honorLevels.map((honorLevel) => <article key={honorLevel}><span>♜</span><div><small>星旅营地 · 百级荣誉</small><b>Lv.{honorLevel} 远征奖状</b><em>分享码 {data.user.inviteCode}</em></div><button onClick={() => downloadHonorCertificate(honorLevel, data.user.name, data.user.inviteCode)}>下载 PNG</button></article>)}</div> : <div className="honor-certificate-locked"><span>⌾</span><div><b>首张荣誉奖状将在 Lv.100 解锁</b><small>当前 Lv.{currentLevel} · 继续完成任务与专注远征</small></div></div>}</div></section></div></section>;
+  const enrichedAchievements = achievements.map((achievement) => ({
+    ...achievement,
+    unlocked: achievement.current >= achievement.target,
+    progress: Math.min(100, Math.round((achievement.current / achievement.target) * 100)),
+  }));
+  const unlockedAchievements = enrichedAchievements.filter((achievement) => achievement.unlocked);
+  const visibleAchievements = achievementFilter === "全部" ? enrichedAchievements : enrichedAchievements.filter((achievement) => achievement.category === achievementFilter);
+  const nextAchievement = enrichedAchievements.filter((achievement) => !achievement.unlocked).sort((left, right) => right.progress - left.progress || left.target - right.target)[0];
+  const categories: Array<"全部" | AchievementCategory> = ["全部", "任务", "专注", "同行", "世界", "成长", "收藏"];
+  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就 · 自动记录</small><h3>冒险勋章册</h3></div><b>{unlockedAchievements.length}/{enrichedAchievements.length} 已解锁</b></div><div className="achievement-overview"><div><span>✦</span><strong>{unlockedAchievements.length}</strong><small>已获得勋章</small></div><div><span>♛</span><strong>{unlockedAchievements.filter((achievement) => achievement.rarity === "legendary").length}</strong><small>传说勋章</small></div>{nextAchievement ? <div className="next-achievement"><span>{nextAchievement.icon}</span><div><small>下一枚最接近</small><b>{nextAchievement.name}</b><em>{nextAchievement.current}/{nextAchievement.target} {nextAchievement.unit}</em></div><i><u style={{ width: `${nextAchievement.progress}%` }} /></i></div> : <div className="next-achievement complete"><span>✺</span><div><small>群星全数点亮</small><b>勋章大师</b><em>全部冒险勋章已获得</em></div></div>}</div><div className="achievement-filters" aria-label="勋章分类">{categories.map((category) => <button key={category} className={achievementFilter === category ? "active" : ""} onClick={() => setAchievementFilter(category)}>{category}<small>{category === "全部" ? enrichedAchievements.length : enrichedAchievements.filter((achievement) => achievement.category === category).length}</small></button>)}</div><div className="achievement-grid enriched">{visibleAchievements.map((achievement) => { const rarity = achievementRarity[achievement.rarity]; return <article key={achievement.name} className={`${achievement.unlocked ? "unlocked" : "locked"} rarity-${achievement.rarity}`}><div className="achievement-medal"><span>{achievement.icon}</span><i>{rarity.stars}</i></div><div className="achievement-copy"><div><em>{achievement.category}</em><small>{rarity.label}</small></div><b>{achievement.name}</b><p>{achievement.story}</p><div className="achievement-progress"><span><i style={{ width: `${achievement.progress}%` }} /></span><small>{achievement.unlocked ? "已获得" : `${achievement.current}/${achievement.target} ${achievement.unit}`}</small></div></div></article>})}</div><div className="honor-certificate-archive"><div className="honor-archive-heading"><div><small>百级远征荣誉</small><h3>专属荣誉奖状</h3></div><span>每 100 级解锁一张 · 包含分享码</span></div>{honorLevels.length ? <div className="honor-certificate-list">{honorLevels.map((honorLevel) => <article key={honorLevel}><span>♜</span><div><small>星旅营地 · 百级荣誉</small><b>Lv.{honorLevel} 远征奖状</b><em>分享码 {data.user.inviteCode}</em></div><button onClick={() => downloadHonorCertificate(honorLevel, data.user.name, data.user.inviteCode)}>下载 PNG</button></article>)}</div> : <div className="honor-certificate-locked"><span>⌾</span><div><b>首张荣誉奖状将在 Lv.100 解锁</b><small>当前 Lv.{currentLevel} · 继续完成任务与专注远征</small></div></div>}</div></section></div></section>;
 }
 
 function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
@@ -969,18 +1110,25 @@ function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, c
     window.location.href = `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
+  async function sendRegisteredFriendInvitation() {
+    const sent = await act({ action: "sendFriendInvitation", email: friendEmail }, "站内好友邀请已送达对方星邮");
+    if (sent) setFriendEmail("");
+  }
+
   return <section className="social-panel">
-    <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div><div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><div className="code-actions"><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制邀请码</button><button onClick={() => void copy(referralShareUrl(), "专属邀请链接已复制")}>复制邀请链接</button></div></div><div className="referral-email-share"><div><small>邮箱邀请链接</small><b>把专属旅程入口发送给好友</b></div><input type="email" value={friendEmail} onChange={(event) => setFriendEmail(event.target.value)} placeholder="好友邮箱 friend@example.com"/><button disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(friendEmail.trim())} onClick={sendReferralEmail}>用邮箱发送</button><p>将打开你的默认邮箱并自动填好内容；收件人邮箱不会保存在星旅营地。</p></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
+    <div className="invite-card glass-card"><div><small>好友邀请</small><h2>分享一束星光</h2><p>好友首次使用你的邀请码，你获得 <b>200 EXP + 120 星辉</b>，好友获得 <b>100 EXP + 80 星辉</b>。</p></div>{data.pendingFriendInvitations.length > 0 && <div className="friend-invitation-inbox"><div><small>收到好友邀请</small><b>注册邮箱让同行相遇更直接</b></div>{data.pendingFriendInvitations.map((invitation) => <article key={invitation.id}><span>{avatarGlyph({ name: invitation.inviterName, avatarKey: invitation.avatarKey, customAvatar: invitation.customAvatar })}</span><div><b>{invitation.inviterName}</b><small>邀请你绑定同行关系</small></div><button className="decline" onClick={() => void act({ action: "declineFriendInvitation", invitationId: invitation.id }, "已婉拒好友邀请")}>拒绝</button><button onClick={() => void act({ action: "acceptFriendInvitation", invitationId: invitation.id }, "同行关系已绑定，双方奖励到账")}>接受</button></article>)}</div>}<div className="code-box"><span>我的邀请码</span><strong>{data.user.inviteCode}</strong><div className="code-actions"><button onClick={() => void copy(data.user.inviteCode, "邀请码已复制")}>复制邀请码</button><button onClick={() => void copy(referralShareUrl(), "专属邀请链接已复制")}>复制邀请链接</button></div></div><div className="referral-email-share"><div><small>注册邮箱邀请</small><b>已注册用户会直接收到站内星邮</b></div><input type="email" value={friendEmail} onChange={(event) => setFriendEmail(event.target.value)} placeholder="好友注册邮箱 friend@example.com"/><div className="referral-email-actions"><button disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(friendEmail.trim())} onClick={() => void sendRegisteredFriendInvitation()}>发送站内邀请</button><button disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(friendEmail.trim())} onClick={sendReferralEmail}>发送外部邮件</button></div><p>已注册用户优先使用站内邀请；尚未注册时可发送带专属链接的外部邮件。</p></div><div className="invite-count">已成功邀请 <b>{data.user.referralCount}</b> 位旅行者</div></div>
     <div className="team-card glass-card">{data.team ? <>
       <div className="team-head"><div className="team-crest">♙</div><div><small>我的五人小组</small><h2>{data.team.name}</h2><p>{data.team.member_count}/5 位成员 · {pendingCount} 个邀请待确认 · 小组口令 {data.team.code}</p></div><div className="team-head-actions">{isOwner && data.team.member_count + pendingCount < 5 && <button className="email-invite-toggle" onClick={() => setShowEmailInvite((open) => !open)}>＋ 邀请成员</button>}<button onClick={() => void copy(data.team!.code, "小组口令已复制")}>复制口令</button></div></div>
       {showEmailInvite && isOwner && <div className="team-email-invite"><div><small>通过注册邮箱邀请</small><b>邀请一位旅行者加入 {data.team.name}</b><p>对方登录星旅营地后会看到站内邀请，可选择接受或拒绝。</p></div><label><span>成员邮箱</span><input type="email" value={memberEmail} onChange={(event) => setMemberEmail(event.target.value)} placeholder="friend@example.com" autoFocus /></label><button disabled={!memberEmail.trim()} onClick={() => void sendEmailInvitation()}>发送邀请</button></div>}
-      <div className="member-list">{data.team.members.map((m, i) => <article key={m.email}><span className="member-rank">{i + 1}</span><div className="member-avatar">{m.display_name.slice(0, 1)}</div><div><b>{m.display_name}</b><small>{m.focus_minutes} 分钟专注</small></div><strong>{m.strength.toLocaleString()} <small>实力</small></strong></article>)}
+      {data.team.pendingJoinRequests.length > 0 && <div className="team-invitation-inbox join-request-inbox"><div className="team-inbox-heading"><span>⌘</span><div><small>全员入组表决</small><b>所有现有成员同意后才能加入</b></div></div>{data.team.pendingJoinRequests.map((request) => <article key={request.id}><div className="join-applicant"><span className="member-avatar">{avatarGlyph({ name: request.applicantName, avatarKey: request.avatarKey, customAvatar: request.customAvatar })}</span><div><small>{request.applicantEmail}</small><b>{request.applicantName}</b><span>{request.approvals}/{request.requiredApprovals} 位成员已同意{request.myVote === "approve" ? " · 你已同意" : ""}</span></div></div><div><button className="decline" onClick={() => void act({ action: "voteTeamJoinRequest", requestId: request.id, decision: "reject" }, "已拒绝该入组申请")}>拒绝</button><button disabled={request.myVote === "approve"} onClick={() => void act({ action: "voteTeamJoinRequest", requestId: request.id, decision: "approve" }, "你的同意已记录")}>{request.myVote === "approve" ? "已同意" : "同意加入"}</button></div></article>)}</div>}
+      <div className="member-list">{data.team.members.map((m, i) => <article key={m.email}><span className="member-rank">{i + 1}</span><div className="member-avatar">{avatarGlyph(m)}</div><div><b>{m.display_name}</b><small>{m.focus_minutes} 分钟专注</small></div><strong>{m.strength.toLocaleString()} <small>实力</small></strong></article>)}
         {data.team.pendingInvitations.map((invitation) => <article className="pending-member" key={`pending-${invitation.id}`}><span className="member-rank">⌛</span><div className="member-avatar">✉</div><div><b>{invitation.inviteeEmail}</b><small>等待对方确认邀请</small></div><strong>待加入</strong></article>)}
         {Array.from({ length: availablePlaces }).map((_, i) => isOwner ? <button className="empty-member" key={i} onClick={() => setShowEmailInvite(true)}><span>＋</span><p>输入邮箱邀请成员</p></button> : <article className="empty-member" key={i}><span>＋</span><p>等待新的同行者</p></article>)}
       </div>
     </> : <>
+      {data.myTeamJoinRequests.length > 0 && <div className="team-invitation-inbox my-join-requests"><div className="team-inbox-heading"><span>⌛</span><div><small>我的入组申请</small><b>正在等待小组成员共同表决</b></div></div>{data.myTeamJoinRequests.map((request) => <article key={request.id}><div><small>申请加入</small><b>{request.teamName}</b><span>{request.approvals}/{request.requiredApprovals} 位成员已同意</span></div><strong>表决中</strong></article>)}</div>}
       {data.pendingTeamInvitations.length > 0 && <div className="team-invitation-inbox"><div className="team-inbox-heading"><span>✉</span><div><small>同行邀请</small><b>有小组正在等待你的回应</b></div></div>{data.pendingTeamInvitations.map((invitation) => <article key={invitation.id}><div><small>{invitation.inviterName} 邀请你加入</small><b>{invitation.teamName}</b><span>{invitation.memberCount}/5 位成员</span></div><div><button className="decline" onClick={() => void act({ action: "declineTeamInvitation", invitationId: invitation.id }, "已婉拒小组邀请")}>拒绝</button><button onClick={() => void act({ action: "acceptTeamInvitation", invitationId: invitation.id }, `已加入「${invitation.teamName}」`)}>接受邀请</button></div></article>)}</div>}
-      <div className="section-intro"><small>同行者大厅</small><h2>创建或加入小组</h2><p>每位旅行者只能加入一个小组，每组最多 5 人。</p></div><div className="team-choices"><div><h3>建立新的营地</h3><input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="输入小组名称" maxLength={16}/><button onClick={() => void act({ action: "createTeam", name: teamName }, "小组创建成功")}>创建小组</button></div><div><h3>加入好友的小组</h3><input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="输入小组口令"/><button onClick={() => void act({ action: "joinTeam", code: teamInput }, "已加入小组")}>加入小组</button></div></div>
+      <div className="section-intro"><small>同行者大厅</small><h2>创建或申请加入小组</h2><p>每位旅行者只能加入一个小组，每组最多 5 人；主动申请需要现有成员全部同意。</p></div><div className="team-choices"><div><h3>建立新的营地</h3><input value={teamName} onChange={(e) => setTeamName(e.target.value)} placeholder="输入小组名称" maxLength={16}/><button onClick={() => void act({ action: "createTeam", name: teamName }, "小组创建成功")}>创建小组</button></div><div><h3>申请加入好友小组</h3><input value={teamInput} onChange={(e) => setTeamInput(e.target.value)} placeholder="输入小组口令"/><button disabled={data.myTeamJoinRequests.length > 0} onClick={() => void act({ action: "requestJoinTeam", code: teamInput }, "入组申请已发送给全体成员")}>{data.myTeamJoinRequests.length ? "等待成员表决" : "申请加入"}</button></div></div>
     </>}</div>
   </section>;
 }

@@ -55,11 +55,22 @@ export default function AuthClient() {
     setUser(null);
   }
 
+  async function deleteAccount(password: string) {
+    const response = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete-account", password }),
+    });
+    const data = await response.json() as { ok?: boolean; error?: string };
+    if (!response.ok || !data.ok) throw new Error(data.error ?? "账号删除失败，请稍后重试");
+    setUser(null);
+  }
+
   if (checking) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在确认旅行者身份…</p></main>;
   }
 
-  if (user) return <GameClient identity={user} onLogout={logout} />;
+  if (user) return <GameClient identity={user} onLogout={logout} onDeleteAccount={deleteAccount} />;
 
   return (
     <main className="auth-page">

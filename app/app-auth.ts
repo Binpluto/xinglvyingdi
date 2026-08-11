@@ -171,6 +171,29 @@ export async function loginAccount(input: { email: string; password: string }) {
   return { identity: { email, displayName: account.display_name }, token: await createSession(email) };
 }
 
+export async function deleteAccount(request: Request, password: string) {
+  const identity = await getAppUser(request);
+  if (!identity) throw new Error("请先登录后再删除账号");
+  validateAccount(identity.email, password);
+  const account = await env.DB.prepare(`
+    SELECT a.email, u.display_name, a.password_hash, a.password_salt, a.failed_attempts, a.locked_until
+    FROM auth_accounts a JOIN users u ON u.email = a.email
+    WHERE a.email = ?
+  `).bind(identity.email).first<AccountRow>();
+  if (!account) throw new Error("账号不存在或已经删除");
+  const candidate = await passwordHash(password, decodeBase64Url(account.password_salt));
+  if (!constantTimeEqual(candidate, account.password_hash)) throw new Error("密码不正确，账号未删除");
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM team_invitations WHERE invitee_email = ? OR inviter_email = ?").bind(identity.email, identity.email),
+    env.DB.prepare("DELETE FROM referrals WHERE referrer_email = ? OR invitee_email = ?").bind(identity.email, identity.email),
+    env.DB.prepare("DELETE FROM teams WHERE owner_email = ?").bind(identity.email),
+    env.DB.prepare("UPDATE users SET invited_by = NULL WHERE invited_by = ?").bind(identity.email),
+    env.DB.prepare("UPDATE premium_free_slots SET user_email = NULL, assigned_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE user_email = ?").bind(identity.email),
+    env.DB.prepare("DELETE FROM users WHERE email = ?").bind(identity.email),
+  ]);
+}
+
 function cookieToken(request: Request) {
   const cookie = request.headers.get("cookie") ?? "";
   const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));

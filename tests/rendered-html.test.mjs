@@ -97,6 +97,20 @@ test("creates three rotating daily system quests with distinct difficulty reward
   assert.match(client, /系统 · 困难/);
 });
 
+test("renders today's energy as a red-orange-green score bar", async () => {
+  const client = await readFile(new URL("app/GameClient.tsx", root), "utf8");
+  const css = await readFile(new URL("app/globals.css", root), "utf8");
+
+  assert.match(client, /const DAILY_ENERGY_GOAL = 150/);
+  assert.match(client, /className="energy-meter"/);
+  assert.match(client, /今日积分/);
+  assert.match(client, /score >= 120[\s\S]*green-deep/);
+  assert.doesNotMatch(client, /className="energy-ring"/);
+  assert.match(css, /\.energy-meter\{/);
+  assert.match(css, /#d45151 0 20%[\s\S]*#de7c32 20% 40%[\s\S]*var\(--energy-deep\) 80% 100%/);
+  assert.match(css, /\.camp-weather\.energy-green-deep/);
+});
+
 test("supports owner email invitations with recipient accept or decline", async () => {
   const [client, route, schema] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
@@ -120,13 +134,13 @@ test("supports owner email invitations with recipient accept or decline", async 
 test("shares referral links through email and preloads invite codes from the URL", async () => {
   const client = await readFile(new URL("app/GameClient.tsx", root), "utf8");
 
-  assert.match(client, /邮箱邀请链接/);
+  assert.match(client, /注册邮箱邀请/);
   assert.match(client, /mailto:/);
   assert.match(client, /url\.searchParams\.set\("invite", data\.user\.inviteCode\)/);
   assert.match(client, /new URLSearchParams\(window\.location\.search\)\.get\("invite"\)/);
   assert.match(client, /setInviteInput\(inviteCode\)/);
   assert.match(client, /复制邀请链接/);
-  assert.match(client, /收件人邮箱不会保存在星旅营地/);
+  assert.match(client, /已注册用户优先使用站内邀请/);
 });
 
 test("supports encrypted direct Google Calendar synchronization", async () => {
@@ -157,18 +171,77 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
 });
 
 test("supports a Vercel public entry while keeping the existing cloud database", async () => {
-  const [auth, checkout, proxy, envExample] = await Promise.all([
+  const [auth, checkout, vercelConfig, proxyHandler, envExample] = await Promise.all([
     readFile(new URL("app/app-auth.ts", root), "utf8"),
     readFile(new URL("app/api/billing/calendar-checkout/route.ts", root), "utf8"),
     readFile(new URL("vercel-proxy/vercel.json", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
     readFile(new URL(".env.example", root), "utf8"),
   ]);
 
   assert.match(auth, /PUBLIC_APP_ORIGIN/);
   assert.match(auth, /allowedOrigins/);
   assert.match(checkout, /appPublicOrigin\(request\)/);
-  assert.match(proxy, /starcamp-life-adventure\.tianyuanzhaodg\.chatgpt\.site/);
+  assert.match(vercelConfig, /api\/proxy/);
+  assert.match(proxyHandler, /starcamp-life-adventure\.tianyuanzhaodg\.chatgpt\.site/);
   assert.match(envExample, /PUBLIC_APP_ORIGIN=/);
+});
+
+test("ships as an installable mobile web app without caching private API data", async () => {
+  const [layout, manifest, worker, proxyHandler] = await Promise.all([
+    readFile(new URL("app/layout.tsx", root), "utf8"),
+    readFile(new URL("public/manifest.webmanifest", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+  ]);
+
+  assert.match(layout, /manifest\.webmanifest/);
+  assert.match(layout, /appleWebApp/);
+  assert.match(manifest, /"display": "standalone"/);
+  assert.match(manifest, /app-icon-512\.png/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);
+  assert.match(worker, /offline\.html/);
+  assert.match(proxyHandler, /pwa-register\.js/);
+});
+
+test("supports review-compliant in-app account and cloud data deletion", async () => {
+  const [authHelper, authRoute, authClient, gameClient, privacy] = await Promise.all([
+    readFile(new URL("app/app-auth.ts", root), "utf8"),
+    readFile(new URL("app/api/auth/route.ts", root), "utf8"),
+    readFile(new URL("app/AuthClient.tsx", root), "utf8"),
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("public/privacy.html", root), "utf8"),
+  ]);
+
+  assert.match(authHelper, /export async function deleteAccount/);
+  assert.match(authHelper, /DELETE FROM users WHERE email/);
+  assert.match(authHelper, /DELETE FROM referrals/);
+  assert.match(authRoute, /delete-account/);
+  assert.match(authClient, /onDeleteAccount/);
+  assert.match(gameClient, /删除账号与云端数据/);
+  assert.match(gameClient, /永久删除账号/);
+  assert.match(privacy, /Google Calendar/);
+  assert.match(privacy, /pluto\.hanna@gmail\.com/);
+});
+
+test("prepares native iOS and Android store projects with the requested identity", async () => {
+  const [iosProject, iosSource, androidBuild, androidManifest, androidSource, listing] = await Promise.all([
+    readFile(new URL("mobile/ios/StarcampLifeAdventure.xcodeproj/project.pbxproj", root), "utf8"),
+    readFile(new URL("mobile/ios/StarcampLifeAdventure/ContentView.swift", root), "utf8"),
+    readFile(new URL("mobile/android/app/build.gradle", root), "utf8"),
+    readFile(new URL("mobile/android/app/src/main/AndroidManifest.xml", root), "utf8"),
+    readFile(new URL("mobile/android/app/src/main/java/starcamp/lifeadventure/MainActivity.java", root), "utf8"),
+    readFile(new URL("mobile/store-listing.md", root), "utf8"),
+  ]);
+
+  assert.match(iosProject, /PRODUCT_BUNDLE_IDENTIFIER = starcamp\.lifeadventure/);
+  assert.match(iosSource, /starcamp-life-adventure\.vercel\.app/);
+  assert.match(iosSource, /UIImpactFeedbackGenerator/);
+  assert.match(androidBuild, /applicationId 'starcamp\.lifeadventure'/);
+  assert.match(androidBuild, /targetSdk 36/);
+  assert.match(androidManifest, /android\.permission\.INTERNET/);
+  assert.match(androidSource, /NativeStarcamp/);
+  assert.match(listing, /privacy\.html/);
 });
 
 test("calendar synchronization imports only the sync date and future tasks", async () => {
@@ -497,7 +570,30 @@ test("celebrates every 10 levels and awards downloadable certificates every 100 
   assert.match(css, /prefers-reduced-motion/);
 });
 
-test("camp energy changes with today's focus time and completed task types", async () => {
+test("adventure medal collection has rich categories, rarity and live progress", async () => {
+  const [client, css] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /冒险勋章册/);
+  assert.match(client, /AchievementCategory/);
+  assert.match(client, /activityStreak/);
+  assert.match(client, /星图编年史/);
+  assert.match(client, /万籁宗师/);
+  assert.match(client, /星门领航员/);
+  assert.match(client, /七洲星冠/);
+  assert.match(client, /世界之心/);
+  assert.match(client, /achievementFilter/);
+  assert.match(client, /下一枚最接近/);
+  assert.match(client, /achievement\.current >= achievement\.target/);
+  assert.match(css, /\.achievement-grid\.enriched/);
+  assert.match(css, /\.rarity-legendary/);
+  assert.match(css, /\.achievement-progress/);
+  assert.match(css, /\.achievement-filters/);
+});
+
+test("camp energy score changes with today's focus time and completed task types", async () => {
   const [client, route, schema, styles] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
@@ -507,14 +603,63 @@ test("camp energy changes with today's focus time and completed task types", asy
 
   assert.match(client, /const QUEST_ENERGY: Record<string, number> = \{ "主线": 20, "支线": 14, "日常": 10 \}/);
   assert.match(client, /Math\.min\(40, Math\.floor\(data\.todayFocusMinutes \/ 2\)\)/);
-  assert.match(client, /weather-\$\{energy\.tone\}/);
+  assert.match(client, /energy-\$\{energy\.tone\}/);
   assert.match(client, /专注 \{data\.todayFocusMinutes\} 分钟/);
   assert.match(client, /完成 \{energy\.completedToday\} 项任务/);
-  assert.match(client, /--energy/);
+  assert.match(client, /--energy-progress/);
   assert.match(route, /SUM\(minutes\)/);
   assert.match(route, /completed_date = \?/);
   assert.match(route, /validClientDate\(body\.clientDate\)/);
   assert.match(schema, /focus_sessions_daily_idx/);
-  assert.match(styles, /Dynamic camp energy weather/);
-  assert.match(styles, /conic-gradient\(var\(--energy-color\) var\(--energy\)/);
+  assert.match(styles, /Dynamic camp energy bar/);
+  assert.match(styles, /linear-gradient\(90deg,#d45151/);
+});
+
+test("keeps every major panel usable on phones, tablets and landscape screens", async () => {
+  const [styles, proxyStyles, proxy] = await Promise.all([
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("vercel-proxy/responsive-ui.css", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+  ]);
+
+  for (const css of [styles, proxyStyles]) {
+    assert.match(css, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+    assert.match(css, /safe-area-inset-bottom/);
+    assert.match(css, /\.main-content[^}]*min-width:0/);
+    assert.match(css, /\.activity-scroll[^}]*max-width:100%/);
+    assert.match(css, /@media\(max-width:380px\)/);
+    assert.match(css, /orientation:landscape/);
+    assert.match(css, /\.auth-page[^}]*overflow-y:auto/);
+  }
+  assert.match(proxy, /responsive-ui\.css\?v=1/);
+});
+
+test("adds level-gated avatars, registered-email invitations and unanimous team join approval", async () => {
+  const [client, route, schema, migration, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0014_handy_stepford_cuckoos.sql", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /百级头像工坊/);
+  assert.match(client, /等级越高，可选择的头像越多/);
+  assert.match(client, /自定义文字\/符号头像/);
+  assert.match(client, /星邮通知中心/);
+  assert.match(client, /发送站内邀请/);
+  assert.match(client, /所有现有成员同意后才能加入/);
+  assert.match(client, /voteTeamJoinRequest/);
+  assert.match(route, /body\.action === "updateAvatar"/);
+  assert.match(route, /body\.action === "sendFriendInvitation"/);
+  assert.match(route, /body\.action === "requestJoinTeam"/);
+  assert.match(route, /approvals\?\.count \?\? 0\) >= request\.members/);
+  assert.match(route, /addNotification/);
+  assert.match(schema, /friendInvitations = sqliteTable\("friend_invitations"/);
+  assert.match(schema, /teamJoinRequests = sqliteTable\("team_join_requests"/);
+  assert.match(schema, /teamJoinRequestVotes = sqliteTable\("team_join_request_votes"/);
+  assert.match(schema, /siteNotifications = sqliteTable\("site_notifications"/);
+  assert.match(migration, /ALTER TABLE `users` ADD `avatar_key`/);
+  assert.match(styles, /\.notification-popover/);
+  assert.match(styles, /\.avatar-choice-grid/);
 });
