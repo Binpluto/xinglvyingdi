@@ -44,6 +44,7 @@ function injectVercelEnhancements(html) {
     '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
     '<link rel="stylesheet" href="/energy-ui.css?v=2">',
     '<link rel="stylesheet" href="/medal-ui.css?v=1">',
+    '<link rel="stylesheet" href="/responsive-ui.css?v=1">',
     '<script defer src="/energy-ui.js?v=2"></script>',
     '<script defer src="/medal-ui.js?v=1"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
