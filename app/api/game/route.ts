@@ -357,6 +357,52 @@ async function addNotification(userEmail: string, kind: string, title: string, b
   `).bind(userEmail, kind, title.slice(0, 80), body.slice(0, 220), entityId ?? null).run();
 }
 
+async function moveUserToTeam(userEmail: string, targetTeamId: number) {
+  const db = env.DB;
+  const current = await db.prepare(`
+    SELECT tm.team_id AS teamId, t.name AS teamName, t.owner_email AS ownerEmail
+    FROM team_members tm JOIN teams t ON t.id = tm.team_id
+    WHERE tm.user_email = ?
+  `).bind(userEmail).first<{ teamId: number; teamName: string; ownerEmail: string }>();
+  if (current?.teamId === targetTeamId) return { previousTeamName: current.teamName, switched: false };
+
+  const statements = [
+    db.prepare("DELETE FROM team_join_request_votes WHERE voter_email = ? AND request_id IN (SELECT id FROM team_join_requests WHERE team_id = ? AND status = 'pending')")
+      .bind(userEmail, current?.teamId ?? -1),
+  ];
+  let successorEmail: string | null = null;
+  let previousMembers: string[] = [];
+
+  if (current) {
+    const remaining = await db.prepare(`
+      SELECT user_email AS email FROM team_members
+      WHERE team_id = ? AND user_email != ? ORDER BY joined_at, user_email
+    `).bind(current.teamId, userEmail).all<{ email: string }>();
+    previousMembers = remaining.results.map((member) => member.email);
+    if (current.ownerEmail === userEmail) {
+      successorEmail = previousMembers[0] ?? null;
+      if (successorEmail) {
+        statements.push(db.prepare("UPDATE teams SET owner_email = ? WHERE id = ?").bind(successorEmail, current.teamId));
+        statements.push(db.prepare("DELETE FROM team_members WHERE team_id = ? AND user_email = ?").bind(current.teamId, userEmail));
+      } else {
+        statements.push(db.prepare("DELETE FROM teams WHERE id = ?").bind(current.teamId));
+      }
+    } else {
+      statements.push(db.prepare("DELETE FROM team_members WHERE team_id = ? AND user_email = ?").bind(current.teamId, userEmail));
+    }
+  }
+  statements.push(db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(targetTeamId, userEmail));
+  await db.batch(statements);
+
+  if (successorEmail) {
+    await addNotification(successorEmail, "team_owner_transferred", "你已成为新队长", `原队长转换小组后，系统已将「${current?.teamName ?? "小组"}」的队长身份交给你。`);
+  }
+  for (const memberEmail of previousMembers) {
+    await addNotification(memberEmail, "team_member_switched", "同行者已转换小组", `${userEmail} 已离开「${current?.teamName ?? "原小组"}」并前往新的小组。`);
+  }
+  return { previousTeamName: current?.teamName ?? null, switched: Boolean(current) };
+}
+
 async function currentUser(request: Request) {
   const identity = await getAppUser(request);
   if (!identity) return null;
@@ -962,7 +1008,6 @@ export async function POST(request: Request) {
       const membership = await db.prepare("SELECT team_id AS teamId FROM team_members WHERE user_email = ?")
         .bind(inviteeEmail).first<{ teamId: number }>();
       if (membership?.teamId === ownedTeam.id) return Response.json({ error: "该旅行者已经在你的小组中" }, { status: 400 });
-      if (membership) return Response.json({ error: "该旅行者已经加入了其他小组" }, { status: 400 });
       const existingInvitation = await db.prepare(`
         SELECT status FROM team_invitations WHERE team_id = ? AND invitee_email = ?
       `).bind(ownedTeam.id, inviteeEmail).first<{ status: string }>();
@@ -977,27 +1022,36 @@ export async function POST(request: Request) {
           status = 'pending', responded_at = NULL, created_at = CURRENT_TIMESTAMP
         RETURNING id
       `).bind(ownedTeam.id, identity.email, inviteeEmail).first<{ id: number }>();
-      await addNotification(inviteeEmail, "team_invite", "收到小组邀请", `${identity.displayName} 邀请你加入小组，前往小组页接受或拒绝。`, teamInvitation?.id);
+      await addNotification(inviteeEmail, "team_invite", membership ? "收到转换小组邀请" : "收到小组邀请", membership
+        ? `${identity.displayName} 邀请你转换到他的小组；接受后会自动离开当前小组。`
+        : `${identity.displayName} 邀请你加入小组，前往小组页接受或拒绝。`, teamInvitation?.id);
     } else if (body.action === "acceptTeamInvitation") {
       const invitationId = Number(body.invitationId);
       const invitation = await db.prepare(`
-        SELECT ti.id, ti.team_id AS teamId,
+        SELECT ti.id, ti.team_id AS teamId, t.name AS teamName,
           (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = ti.team_id) AS members
-        FROM team_invitations ti
+        FROM team_invitations ti JOIN teams t ON t.id = ti.team_id
         WHERE ti.id = ? AND ti.invitee_email = ? AND ti.status = 'pending'
-      `).bind(invitationId, identity.email).first<{ id: number; teamId: number; members: number }>();
+      `).bind(invitationId, identity.email).first<{ id: number; teamId: number; teamName: string; members: number }>();
       if (!invitation) return Response.json({ error: "邀请不存在或已经处理" }, { status: 404 });
-      const membership = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(identity.email).first();
-      if (membership) return Response.json({ error: "你已经加入了一个小组" }, { status: 400 });
+      const membership = await db.prepare("SELECT team_id AS teamId FROM team_members WHERE user_email = ?")
+        .bind(identity.email).first<{ teamId: number }>();
+      if (membership?.teamId === invitation.teamId) {
+        await db.prepare("UPDATE team_invitations SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(invitation.id).run();
+        return Response.json(await dashboard(identity.email, body.clientDate));
+      }
       if (invitation.members >= 5) return Response.json({ error: "该小组已经满员（最多 5 人）" }, { status: 400 });
+      const movement = await moveUserToTeam(identity.email, invitation.teamId);
       await db.batch([
-        db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(invitation.teamId, identity.email),
         db.prepare("UPDATE team_invitations SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(invitation.id),
         db.prepare("UPDATE team_invitations SET status = 'declined', responded_at = CURRENT_TIMESTAMP WHERE invitee_email = ? AND status = 'pending' AND id != ?").bind(identity.email, invitation.id),
+        db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE applicant_email = ? AND status = 'pending'").bind(identity.email),
       ]);
       const owner = await db.prepare("SELECT owner_email AS ownerEmail FROM teams WHERE id = ?")
         .bind(invitation.teamId).first<{ ownerEmail: string }>();
-      if (owner?.ownerEmail) await addNotification(owner.ownerEmail, "team_invite_accepted", "新成员已加入", `${identity.displayName} 已接受邀请并加入你的小组。`, invitation.id);
+      if (owner?.ownerEmail) await addNotification(owner.ownerEmail, "team_invite_accepted", movement.switched ? "成员已转换加入" : "新成员已加入", movement.switched
+        ? `${identity.displayName} 已接受邀请，从「${movement.previousTeamName}」转换加入「${invitation.teamName}」。`
+        : `${identity.displayName} 已接受邀请并加入你的小组。`, invitation.id);
     } else if (body.action === "declineTeamInvitation") {
       const invitationId = Number(body.invitationId);
       const invitation = await db.prepare(`
@@ -1013,8 +1067,10 @@ export async function POST(request: Request) {
       await addNotification(invitation.inviterEmail, "team_invite_declined", "小组邀请未被接受", `${identity.displayName} 暂时没有接受你的小组邀请。`, invitation.id);
     } else if (body.action === "requestJoinTeam") {
       const code = (body.code ?? "").trim().toUpperCase();
-      const exists = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(identity.email).first();
-      if (exists) return Response.json({ error: "你已经加入了一个小组" }, { status: 400 });
+      const membership = await db.prepare(`
+        SELECT tm.team_id AS teamId, t.name AS teamName FROM team_members tm
+        JOIN teams t ON t.id = tm.team_id WHERE tm.user_email = ?
+      `).bind(identity.email).first<{ teamId: number; teamName: string }>();
       const existingRequest = await db.prepare("SELECT team_id AS teamId FROM team_join_requests WHERE applicant_email = ? AND status = 'pending'")
         .bind(identity.email).first<{ teamId: number }>();
       const team = await db.prepare(`
@@ -1022,6 +1078,7 @@ export async function POST(request: Request) {
         LEFT JOIN team_members tm ON tm.team_id = t.id WHERE t.code = ? GROUP BY t.id
       `).bind(code).first<{ id: number; name: string; members: number }>();
       if (!team) return Response.json({ error: "小组口令不存在" }, { status: 404 });
+      if (membership?.teamId === team.id) return Response.json({ error: "你已经在这个小组中" }, { status: 400 });
       if (team.members >= 5) return Response.json({ error: "该小组已经满员（最多 5 人）" }, { status: 400 });
       if (existingRequest && existingRequest.teamId !== team.id) {
         return Response.json({ error: "你已有一项待表决的入组申请，请等待结果" }, { status: 400 });
@@ -1038,7 +1095,9 @@ export async function POST(request: Request) {
       const recipients = await db.prepare("SELECT user_email AS email FROM team_members WHERE team_id = ?")
         .bind(team.id).all<{ email: string }>();
       for (const recipient of recipients.results) {
-        await addNotification(recipient.email, "team_join_request", "收到入组申请", `${identity.displayName} 申请加入「${team.name}」，需要所有现有成员同意。`, request?.id);
+        await addNotification(recipient.email, "team_join_request", membership ? "收到转换小组申请" : "收到入组申请", membership
+          ? `${identity.displayName} 申请从「${membership.teamName}」转换加入「${team.name}」，需要所有现有成员同意。`
+          : `${identity.displayName} 申请加入「${team.name}」，需要所有现有成员同意。`, request?.id);
       }
     } else if (body.action === "voteTeamJoinRequest") {
       const requestId = Number(body.requestId);
@@ -1066,21 +1125,20 @@ export async function POST(request: Request) {
         const approvals = await db.prepare("SELECT COUNT(*) AS count FROM team_join_request_votes WHERE request_id = ? AND decision = 'approve'")
           .bind(request.id).first<{ count: number }>();
         if ((approvals?.count ?? 0) >= request.members) {
-          const membership = await db.prepare("SELECT 1 FROM team_members WHERE user_email = ?").bind(request.applicantEmail).first();
+          const membership = await db.prepare("SELECT team_id AS teamId FROM team_members WHERE user_email = ?")
+            .bind(request.applicantEmail).first<{ teamId: number }>();
           const memberCount = await db.prepare("SELECT COUNT(*) AS count FROM team_members WHERE team_id = ?")
             .bind(request.teamId).first<{ count: number }>();
-          if (membership) {
-            await db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE id = ?")
-              .bind(request.id).run();
-            return Response.json({ error: "申请人已经加入了其他小组" }, { status: 400 });
-          }
+          if (membership?.teamId === request.teamId) return Response.json({ error: "申请人已经在该小组中" }, { status: 400 });
           if ((memberCount?.count ?? 0) >= 5) return Response.json({ error: "小组已经满员" }, { status: 400 });
+          const movement = await moveUserToTeam(request.applicantEmail, request.teamId);
           await db.batch([
-            db.prepare("INSERT INTO team_members (team_id, user_email) VALUES (?, ?)").bind(request.teamId, request.applicantEmail),
             db.prepare("UPDATE team_join_requests SET status = 'accepted', responded_at = CURRENT_TIMESTAMP WHERE id = ?").bind(request.id),
             db.prepare("UPDATE team_join_requests SET status = 'rejected', responded_at = CURRENT_TIMESTAMP WHERE applicant_email = ? AND status = 'pending' AND id != ?").bind(request.applicantEmail, request.id),
           ]);
-          await addNotification(request.applicantEmail, "team_join_accepted", "入组申请已通过", `「${request.teamName}」全体成员已同意，你现在已经加入小组。`, request.id);
+          await addNotification(request.applicantEmail, "team_join_accepted", movement.switched ? "转换小组申请已通过" : "入组申请已通过", movement.switched
+            ? `「${request.teamName}」全体成员已同意，你已从「${movement.previousTeamName}」转换加入新小组。`
+            : `「${request.teamName}」全体成员已同意，你现在已经加入小组。`, request.id);
         }
       }
     } else {

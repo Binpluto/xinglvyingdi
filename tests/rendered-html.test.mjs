@@ -667,3 +667,25 @@ test("adds level-gated avatars, registered-email invitations and unanimous team 
   assert.match(styles, /\.notification-popover/);
   assert.match(styles, /\.avatar-choice-grid/);
 });
+
+test("allows consent-based team switching while preserving the previous team", async () => {
+  const [client, route, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /接受后，你将离开/);
+  assert.match(client, /同意并转换/);
+  assert.match(client, /申请转换小组/);
+  assert.match(client, /目标小组全体成员同意后/);
+  assert.match(route, /async function moveUserToTeam/);
+  assert.match(route, /UPDATE teams SET owner_email = \? WHERE id = \?/);
+  assert.match(route, /DELETE FROM team_members WHERE team_id = \? AND user_email = \?/);
+  assert.match(route, /team_owner_transferred/);
+  assert.match(route, /membership \? "收到转换小组邀请" : "收到小组邀请"/);
+  assert.match(route, /membership \? "收到转换小组申请" : "收到入组申请"/);
+  assert.match(route, /movement\.switched \? "转换小组申请已通过" : "入组申请已通过"/);
+  assert.match(styles, /\.team-switch-card/);
+  assert.match(styles, /\.team-switch-invitations/);
+});
