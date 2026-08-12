@@ -40,6 +40,16 @@ type WeeklyReport = {
   recommendations: { keep: string; reduce: string; prioritize: string };
   highlight: { title: string; reward: number; date: string } | null;
 };
+type SevenDayChallengeDay = { id: number; day: number; title: string; detail: string; reward: number; dueDate: string; done: boolean };
+type SevenDayChallenge = {
+  active: boolean;
+  startDate: string | null;
+  completedCount: number;
+  currentDay: number;
+  currentTask: SevenDayChallengeDay | null;
+  days: SevenDayChallengeDay[];
+  totalReward: number;
+};
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number; avatarKey: string; customAvatar: string | null };
   quests: Quest[];
@@ -49,6 +59,7 @@ type GameData = {
   focusHistory: FocusRecord[];
   todayFocusMinutes: number;
   weeklyReport: WeeklyReport;
+  sevenDayChallenge: SevenDayChallenge;
   dailyDeparture: DailyDeparture | null;
   habitSettings: HabitSettings;
   habit: HabitState;
@@ -872,6 +883,48 @@ function WeeklyVoyageReport({ report }: { report: WeeklyReport }) {
   </section>;
 }
 
+const sevenDayPreview = [
+  ["定目标", "点亮第一颗主星"],
+  ["专注", "完成首次专注"],
+  ["行动", "清理一个阻碍"],
+  ["能量", "读懂今日状态"],
+  ["同行", "寻找同行星光"],
+  ["成果", "留下一项成果"],
+  ["复盘", "完成篝火复盘"],
+] as const;
+
+function SevenDayChallengeCard({ challenge, act, setTab }: { challenge: SevenDayChallenge; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; setTab: (tab: string) => void }) {
+  const [starting, setStarting] = useState(false);
+  const today = localDateKey(new Date());
+  const finished = challenge.active && challenge.completedCount === 7;
+  const currentTask = challenge.currentTask;
+
+  async function startChallenge() {
+    setStarting(true);
+    const started = await act(
+      { action: "startSevenDayChallenge", templateStartDate: today },
+      "7天星旅挑战已开启，今天的第一项任务已抵达",
+    );
+    setStarting(false);
+    if (started) setTab("任务");
+  }
+
+  return <section className={`seven-day-challenge${challenge.active ? " active" : " ready"}${finished ? " finished" : ""}`} aria-labelledby="seven-day-title">
+    <div className="seven-day-orbit" aria-hidden="true"><i /><i /><i /></div>
+    <header className="seven-day-head">
+      <div><small>NEW TRAVELER ROUTE · 新手第一周</small><h2 id="seven-day-title">7天星旅挑战</h2><p>{challenge.active ? finished ? "七颗星已经连成你的第一条航线。" : "每天完成一个核心行动，不需要一次弄懂所有功能。" : "不知道第一周该做什么？沿着七颗星出发，每天只完成一件关键小事。"}</p></div>
+      <div className="seven-day-reward"><span>✦</span><div><b>{challenge.totalReward}</b><small>全程可获 EXP</small></div></div>
+    </header>
+    <div className="seven-day-route" role="list" aria-label="七天挑战路线">{sevenDayPreview.map(([label, title], index) => {
+      const persistedDay = challenge.days[index];
+      const done = Boolean(persistedDay?.done);
+      const current = challenge.active && !finished && challenge.currentDay === index + 1;
+      return <div role="listitem" key={label} className={`${done ? "done" : ""}${current ? " current" : ""}`}><span>{done ? "✓" : index + 1}</span><i /><div><small>DAY {index + 1} · {label}</small><b>{persistedDay?.title.replace(/^Day \d · /, "") ?? title}</b></div></div>;
+    })}</div>
+    {!challenge.active ? <footer className="seven-day-start"><div><b>今天从 Day 1 开始</b><span>生成 7 项带日期的云端任务 · 可编辑 · 可删除 · 不收费</span></div><button type="button" disabled={starting} onClick={() => void startChallenge()}>{starting ? "正在点亮航线…" : "开启7天挑战 →"}</button></footer> : finished ? <footer className="seven-day-complete"><span>✦</span><div><b>第一条星旅航线已完成</b><p>打开每周航海报告，看看这一周的专注、精力与成果。</p></div><button type="button" onClick={() => document.getElementById("weekly-report-title")?.scrollIntoView({ behavior: "smooth" })}>查看本周报告 ↓</button></footer> : <footer className="seven-day-today"><span>DAY {currentTask?.day ?? challenge.currentDay}</span><div><small>{currentTask?.dueDate && currentTask.dueDate > today ? `${new Date(`${currentTask.dueDate}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} 开启下一站` : "今天只做这一件"}</small><b>{currentTask?.title ?? "继续今日航线"}</b><p>{currentTask?.detail}</p></div><button type="button" onClick={() => setTab("任务")}>{currentTask?.dueDate && currentTask.dueDate > today ? "查看任务页" : "去完成今日任务 →"}</button></footer>}
+  </section>;
+}
+
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
   const energy = campEnergy(data);
   const calendarAgenda = sortQuests(todayRelevantQuests(data.quests).filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
@@ -894,7 +947,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="profile-card glass-card"><div className="card-heading"><div><small>旅行者档案</small><h3>云端旅程</h3></div><span className="sync-orb">✓</span></div><div className="cloud-stats"><div><b>{data.user.focusMinutes}</b><span>累计专注 / 分钟</span></div><div><b>{data.user.referralCount}</b><span>成功邀请 / 人</span></div><div><b>{data.team?.member_count ?? 0}</b><span>同行伙伴 / 人</span></div></div><blockquote>“因相遇而出发，因同行而抵达。”</blockquote></aside>
     <QuestBoard data={data} done={done} act={act} compact />
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
-  </div><WeeklyVoyageReport report={data.weeklyReport} /><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
+  </div><SevenDayChallengeCard challenge={data.sevenDayChallenge} act={act} setTab={setTab} /><WeeklyVoyageReport report={data.weeklyReport} /><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
     <section className={`glass-card camp-weather energy-${energy.tone}`}>
       <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>

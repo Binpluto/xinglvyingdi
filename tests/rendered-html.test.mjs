@@ -772,3 +772,27 @@ test("launches six editable scene templates as dated cloud task routes", async (
   assert.match(styles, /\.scene-template-library/);
   assert.match(styles, /\.scene-template-cards/);
 });
+
+test("guides new travelers through a durable seven-day first-week challenge", async () => {
+  const [client, route, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /7天星旅挑战/);
+  assert.match(client, /新手第一周/);
+  assert.match(client, /每天只完成一件关键小事/);
+  assert.match(client, /今天只做这一件/);
+  assert.match(client, /开启7天挑战/);
+  assert.match(client, /startSevenDayChallenge/);
+  assert.match(client, /查看本周报告/);
+  assert.match(route, /const sevenDayChallengeTasks/);
+  assert.match(route, /async function sevenDayChallengeState/);
+  assert.match(route, /source = 'seven-day-challenge'/);
+  assert.match(route, /body\.action === "startSevenDayChallenge"/);
+  assert.match(route, /shiftDate\(startDate, index\)/);
+  assert.match(styles, /Seven-day new traveler challenge/);
+  assert.match(styles, /\.seven-day-challenge/);
+  assert.match(styles, /\.seven-day-route/);
+});

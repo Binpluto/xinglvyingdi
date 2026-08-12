@@ -182,6 +182,39 @@ const scenePaces = {
   sprint: { indexes: [0, 1, 2, 3, 4, 5], offsets: [0, 1, 2, 3, 5, 6], focusMinutes: 60 },
 } as const;
 
+const sevenDayChallengeTasks: readonly SceneTemplateQuest[] = [
+  ["Day 1 · 点亮第一颗主星", "写下本周最重要的一个目标，把它拆成三个可以开始的步骤。", "主线", 50],
+  ["Day 2 · 完成首次专注", "选择一个任务，完成至少 25 分钟无干扰专注，并留下阶段成果。", "支线", 45],
+  ["Day 3 · 清理一个阻碍", "完成一件已经拖延的小事，记录让自己顺利开始的方法。", "支线", 45],
+  ["Day 4 · 读懂今日能量", "记录当前精力，并选择与状态匹配的一项任务完成。", "日常", 35],
+  ["Day 5 · 寻找同行星光", "邀请一位好友，或浏览小组大厅并选择一个想同行的小组。", "支线", 50],
+  ["Day 6 · 留下一项成果", "完成一项可以查看、提交或分享的成果，为本周留下证据。", "主线", 80],
+  ["Day 7 · 完成篝火复盘", "打开每周航海报告，写下保留、减少和优先的各一件事。", "主线", 60],
+] as const;
+
+async function sevenDayChallengeState(email: string, clientDate: string) {
+  const rows = await env.DB.prepare(`
+    SELECT id, title, detail, reward, due_at AS dueDate, completed AS done
+    FROM quests
+    WHERE user_email = ? AND source = 'seven-day-challenge'
+    ORDER BY due_at, id LIMIT 7
+  `).bind(email).all<{ id: number; title: string; detail: string; reward: number; dueDate: string; done: number }>();
+  const days = rows.results.map((row, index) => ({ ...row, day: index + 1, done: Boolean(row.done) }));
+  const currentTask = days.find((day) => !day.done && day.dueDate <= clientDate)
+    ?? days.find((day) => !day.done)
+    ?? days.at(-1)
+    ?? null;
+  return {
+    active: days.length > 0,
+    startDate: days[0]?.dueDate ?? null,
+    completedCount: days.filter((day) => day.done).length,
+    currentDay: currentTask?.day ?? 1,
+    currentTask,
+    days,
+    totalReward: sevenDayChallengeTasks.reduce((total, task) => total + task[3], 0),
+  };
+}
+
 function stableQuestOffset(key: string) {
   let hash = 2166136261;
   for (let index = 0; index < key.length; index += 1) {
@@ -817,6 +850,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
   await syncRealmUnlock(email);
   const habit = await habitState(email, clientDate, true);
   const weeklyReport = await weeklyVoyageReport(email, clientDate);
+  const sevenDayChallenge = await sevenDayChallengeState(email, clientDate);
   const dailyDeparture = await db.prepare(`
     SELECT departure_date AS departureDate, main_goal AS mainGoal,
       focus_goal_minutes AS focusGoalMinutes, energy_level AS energyLevel,
@@ -981,6 +1015,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     focusHistory: focusHistory.results,
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
     weeklyReport,
+    sevenDayChallenge,
     dailyDeparture: dailyDeparture ?? null,
     habit,
     habitSettings: savedHabitSettings
@@ -1234,6 +1269,28 @@ export async function POST(request: Request) {
       await db.prepare(`
         DELETE FROM quests WHERE user_email = ? AND id IN (${placeholders})
       `).bind(identity.email, ...questIds).run();
+    } else if (body.action === "startSevenDayChallenge") {
+      const startDate = validClientDate(body.templateStartDate ?? body.clientDate);
+      const existing = await db.prepare(`
+        SELECT COUNT(*) AS count FROM quests
+        WHERE user_email = ? AND source = 'seven-day-challenge'
+      `).bind(identity.email).first<{ count: number }>();
+      if ((existing?.count ?? 0) > 0) {
+        return Response.json({ error: "7天星旅挑战已经启用，继续完成当前航线即可" }, { status: 400 });
+      }
+      await db.batch(sevenDayChallengeTasks.map((quest, index) => db.prepare(`
+        INSERT INTO quests
+          (user_email, title, detail, type, reward, source, due_at, external_id)
+        VALUES (?, ?, ?, ?, ?, 'seven-day-challenge', ?, ?)
+      `).bind(
+        identity.email,
+        quest[0],
+        quest[1],
+        quest[2],
+        quest[3],
+        shiftDate(startDate, index),
+        `${startDate}:day-${index + 1}`,
+      )));
     } else if (body.action === "applySceneTemplate") {
       const sceneId = (body.sceneId ?? "").trim();
       const template = sceneTemplates[sceneId];
