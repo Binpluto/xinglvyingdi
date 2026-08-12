@@ -719,3 +719,28 @@ test("adds a focused daily departure, user-timed reminders and gentle streak rew
   assert.match(styles, /\.daily-departure-page/);
   assert.match(styles, /\.habit-hub/);
 });
+
+test("builds a one-page weekly voyage report from durable activity records", async () => {
+  const [client, route, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /WEEKLY VOYAGE REPORT · 每周航海报告/);
+  assert.match(client, /本周完成了什么/);
+  assert.match(client, /计划专注与实际专注/);
+  assert.match(client, /最常延期的任务类型/);
+  assert.match(client, /不同精力状态下的完成率/);
+  assert.match(client, /保留、减少与优先/);
+  assert.match(client, /本周最值得分享的一项成果/);
+  assert.match(client, /navigator\.share/);
+  assert.match(route, /async function weeklyVoyageReport/);
+  assert.match(route, /SUM\(focus_goal_minutes\)/);
+  assert.match(route, /SUM\(minutes\)/);
+  assert.match(route, /d\.energy_level AS energyLevel/);
+  assert.match(route, /qc\.completed_date > substr\(q\.due_at/);
+  assert.match(styles, /One-page weekly voyage report/);
+  assert.match(styles, /\.weekly-voyage-report/);
+  assert.match(styles, /\.weekly-recommendations/);
+});

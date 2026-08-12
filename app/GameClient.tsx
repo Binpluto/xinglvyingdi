@@ -25,6 +25,21 @@ type PremiumProgram = { isAdmin: boolean; isFreeMember: boolean; maxSlots: numbe
 type DailyDeparture = { departureDate: string; mainGoal: string; focusGoalMinutes: number; energyLevel: "low" | "medium" | "high"; startedAt: string };
 type HabitSettings = { departureReminder: string | null; mainReminder: string | null; reviewReminder: string | null; notificationsEnabled: boolean };
 type HabitState = { currentStreak: number; longestStreak: number; activeDays: number; restTicketsRemaining: number; canRepairYesterday: boolean; claimedMilestones: number[] };
+type WeeklyEnergyCompletion = { energyLevel: "low" | "medium" | "high"; planned: number; completed: number; rate: number | null };
+type WeeklyReport = {
+  startDate: string;
+  endDate: string;
+  completedCount: number;
+  completedItems: Array<{ title: string; reward: number; completedDate: string; type: string }>;
+  typeBreakdown: Array<{ type: string; count: number }>;
+  plannedFocusMinutes: number;
+  actualFocusMinutes: number;
+  focusAchievementRate: number;
+  postponedType: { type: string; count: number } | null;
+  energyCompletion: WeeklyEnergyCompletion[];
+  recommendations: { keep: string; reduce: string; prioritize: string };
+  highlight: { title: string; reward: number; date: string } | null;
+};
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number; avatarKey: string; customAvatar: string | null };
   quests: Quest[];
@@ -33,6 +48,7 @@ type GameData = {
   recentQuestCompletions: QuestCompletionRecord[];
   focusHistory: FocusRecord[];
   todayFocusMinutes: number;
+  weeklyReport: WeeklyReport;
   dailyDeparture: DailyDeparture | null;
   habitSettings: HabitSettings;
   habit: HabitState;
@@ -771,6 +787,75 @@ function HabitHub({ data, act }: { data: GameData; act: (p: Record<string, unkno
   </section>;
 }
 
+function WeeklyVoyageReport({ report }: { report: WeeklyReport }) {
+  const [shareState, setShareState] = useState("");
+  const energyNames = { low: "低精力", medium: "中精力", high: "高精力" };
+  const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { month: "short", day: "numeric" });
+  const shareText = [
+    "星旅营地 · 本周航海报告",
+    `${dateLabel(report.startDate)}—${dateLabel(report.endDate)}`,
+    `完成 ${report.completedCount} 项任务，实际专注 ${report.actualFocusMinutes} 分钟。`,
+    report.highlight ? `本周最值得分享：${report.highlight.title}` : "这一周，我仍在为自己的航向积蓄星光。",
+  ].join("\n");
+
+  async function shareHighlight() {
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "星旅营地 · 每周航海报告", text: shareText });
+        setShareState("已打开分享");
+      } else {
+        await navigator.clipboard.writeText(shareText);
+        setShareState("报告摘要已复制");
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      try {
+        await navigator.clipboard.writeText(shareText);
+        setShareState("报告摘要已复制");
+      } catch {
+        setShareState("复制失败，请稍后重试");
+      }
+    }
+  }
+
+  return <section className="weekly-voyage-report" aria-labelledby="weekly-report-title">
+    <header className="weekly-report-head">
+      <div><small>WEEKLY VOYAGE REPORT · 每周航海报告</small><h2 id="weekly-report-title">把一周的航迹，收进这一页</h2><p>{dateLabel(report.startDate)} — {dateLabel(report.endDate)} · 每周一自动开启新航程</p></div>
+      <span className="weekly-report-compass" aria-hidden="true">✦</span>
+    </header>
+    <div className="weekly-report-stats">
+      <div><strong>{report.completedCount}</strong><span>本周完成</span></div>
+      <div><strong>{report.plannedFocusMinutes}</strong><span>计划专注 / 分钟</span></div>
+      <div><strong>{report.actualFocusMinutes}</strong><span>实际专注 / 分钟</span></div>
+      <div><strong>{report.focusAchievementRate}%</strong><span>专注达成率</span></div>
+    </div>
+    <div className="weekly-report-grid">
+      <article className="weekly-report-panel weekly-completed-panel">
+        <div className="weekly-section-title"><span>01</span><div><small>本周完成了什么</small><h3>已抵达的航标</h3></div></div>
+        {report.typeBreakdown.length > 0 && <div className="weekly-type-chips">{report.typeBreakdown.map((item) => <span key={item.type}>{item.type}<b>{item.count}</b></span>)}</div>}
+        {report.completedItems.length ? <ol>{report.completedItems.map((item) => <li key={`${item.completedDate}-${item.title}`}><i>✓</i><span><b>{item.title}</b><small>{item.type} · {dateLabel(item.completedDate)}</small></span><em>+{item.reward}</em></li>)}</ol> : <p className="weekly-empty">本周还没有完成记录。完成第一项任务后，航标会出现在这里。</p>}
+      </article>
+      <article className="weekly-report-panel weekly-focus-panel">
+        <div className="weekly-section-title"><span>02</span><div><small>计划专注与实际专注</small><h3>{report.actualFocusMinutes >= report.plannedFocusMinutes && report.plannedFocusMinutes > 0 ? "航速达到预期" : "校准下周航速"}</h3></div></div>
+        <div className="weekly-focus-compare"><div><i style={{ width: `${Math.min(100, report.plannedFocusMinutes ? report.actualFocusMinutes / report.plannedFocusMinutes * 100 : 0)}%` }} /></div><p><b>{report.actualFocusMinutes}</b> / {report.plannedFocusMinutes || "未设计划"} 分钟</p></div>
+        <div className="weekly-delay"><span>03</span><div><small>最常延期的任务类型</small><b>{report.postponedType ? report.postponedType.type : "本周无明显延期"}</b><p>{report.postponedType ? `共 ${report.postponedType.count} 项，建议拆分后重新排期。` : "继续保持清晰截止时间与适量计划。"}</p></div></div>
+      </article>
+      <article className="weekly-report-panel weekly-energy-panel">
+        <div className="weekly-section-title"><span>04</span><div><small>不同精力状态下的完成率</small><h3>认识自己的行动节律</h3></div></div>
+        <div className="weekly-energy-list">{report.energyCompletion.map((item) => <div key={item.energyLevel} className={`energy-${item.energyLevel}`}><header><b>{energyNames[item.energyLevel]}</b><span>{item.rate === null ? "尚无样本" : `${item.rate}%`}</span></header><div><i style={{ width: `${item.rate ?? 0}%` }} /></div><small>{item.planned ? `${item.completed} / ${item.planned} 项完成` : "完成每日启程后开始统计"}</small></div>)}</div>
+      </article>
+      <article className="weekly-report-panel weekly-next-panel">
+        <div className="weekly-section-title"><span>05</span><div><small>下周航线建议</small><h3>保留、减少与优先</h3></div></div>
+        <div className="weekly-recommendations"><div className="keep"><b>保留</b><p>{report.recommendations.keep}</p></div><div className="reduce"><b>减少</b><p>{report.recommendations.reduce}</p></div><div className="prioritize"><b>优先</b><p>{report.recommendations.prioritize}</p></div></div>
+      </article>
+    </div>
+    <footer className="weekly-highlight">
+      <span aria-hidden="true">✦</span><div><small>06 · 本周最值得分享的一项成果</small><h3>{report.highlight?.title ?? "继续出发，下一项成果正在前方"}</h3>{report.highlight && <p>{dateLabel(report.highlight.date)}{report.highlight.reward ? ` · 获得 ${report.highlight.reward} 星辉` : " · 本周主线"}</p>}</div>
+      <button type="button" onClick={() => void shareHighlight()}>分享本周成果 ↗</button>{shareState && <em role="status">{shareState}</em>}
+    </footer>
+  </section>;
+}
+
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
   const energy = campEnergy(data);
   const calendarAgenda = sortQuests(todayRelevantQuests(data.quests).filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
@@ -793,7 +878,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="profile-card glass-card"><div className="card-heading"><div><small>旅行者档案</small><h3>云端旅程</h3></div><span className="sync-orb">✓</span></div><div className="cloud-stats"><div><b>{data.user.focusMinutes}</b><span>累计专注 / 分钟</span></div><div><b>{data.user.referralCount}</b><span>成功邀请 / 人</span></div><div><b>{data.team?.member_count ?? 0}</b><span>同行伙伴 / 人</span></div></div><blockquote>“因相遇而出发，因同行而抵达。”</blockquote></aside>
     <QuestBoard data={data} done={done} act={act} compact />
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
-  </div><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
+  </div><WeeklyVoyageReport report={data.weeklyReport} /><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
     <section className={`glass-card camp-weather energy-${energy.tone}`}>
       <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>

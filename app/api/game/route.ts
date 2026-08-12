@@ -610,12 +610,136 @@ function validClientDate(value?: string | null) {
   return value!;
 }
 
+function weekBounds(clientDate: string) {
+  const moment = new Date(`${clientDate}T12:00:00Z`);
+  const mondayOffset = (moment.getUTCDay() + 6) % 7;
+  const startDate = shiftDate(clientDate, -mondayOffset);
+  return { startDate, endDate: shiftDate(startDate, 6) };
+}
+
+async function weeklyVoyageReport(email: string, clientDate: string) {
+  const { startDate, endDate } = weekBounds(clientDate);
+  const db = env.DB;
+  const [completed, focus, postponed, energy, unfinishedMain, latestDeparture] = await Promise.all([
+    db.prepare(`
+      SELECT qc.quest_title AS title, qc.reward, qc.completed_date AS completedDate,
+        COALESCE(q.type, CASE
+          WHEN qc.source LIKE 'system-daily-hard%' OR qc.source = 'daily-departure' THEN '主线'
+          WHEN qc.source LIKE 'system-daily-medium%' THEN '支线'
+          ELSE '日常' END) AS type
+      FROM quest_completions qc
+      LEFT JOIN quests q ON q.id = qc.quest_id AND q.user_email = qc.user_email
+      WHERE qc.user_email = ? AND qc.completed_date BETWEEN ? AND ?
+      ORDER BY qc.reward DESC, qc.completed_at DESC
+    `).bind(email, startDate, endDate).all<{ title: string; reward: number; completedDate: string; type: string }>(),
+    db.prepare(`
+      SELECT
+        COALESCE((SELECT SUM(focus_goal_minutes) FROM daily_departures
+          WHERE user_email = ? AND departure_date BETWEEN ? AND ?), 0) AS planned,
+        COALESCE((SELECT SUM(minutes) FROM focus_sessions
+          WHERE user_email = ? AND completed_date BETWEEN ? AND ?), 0) AS actual
+    `).bind(email, startDate, endDate, email, startDate, endDate).first<{ planned: number; actual: number }>(),
+    db.prepare(`
+      SELECT type, COUNT(*) AS count FROM (
+        SELECT q.type AS type
+        FROM quests q
+        WHERE q.user_email = ? AND q.completed = 0 AND q.due_at IS NOT NULL
+          AND substr(q.due_at, 1, 10) BETWEEN ? AND ?
+          AND substr(q.due_at, 1, 10) < ?
+        UNION ALL
+        SELECT COALESCE(q.type, '日常') AS type
+        FROM quest_completions qc JOIN quests q ON q.id = qc.quest_id
+        WHERE qc.user_email = ? AND qc.completed_date BETWEEN ? AND ?
+          AND q.due_at IS NOT NULL AND qc.completed_date > substr(q.due_at, 1, 10)
+      ) GROUP BY type ORDER BY count DESC, type LIMIT 1
+    `).bind(email, startDate, endDate, clientDate, email, startDate, endDate).first<{ type: string; count: number }>(),
+    db.prepare(`
+      SELECT d.energy_level AS energyLevel, COUNT(q.id) AS planned,
+        COALESCE(SUM(CASE WHEN q.completed = 1 THEN 1 ELSE 0 END), 0) AS completed
+      FROM daily_departures d
+      LEFT JOIN quests q ON q.user_email = d.user_email
+        AND q.due_at IS NOT NULL AND substr(q.due_at, 1, 10) = d.departure_date
+      WHERE d.user_email = ? AND d.departure_date BETWEEN ? AND ?
+      GROUP BY d.energy_level
+    `).bind(email, startDate, endDate).all<{ energyLevel: string; planned: number; completed: number }>(),
+    db.prepare(`
+      SELECT COUNT(*) AS count FROM quests
+      WHERE user_email = ? AND type = '主线' AND completed = 0
+        AND (due_at IS NULL OR substr(due_at, 1, 10) <= ?)
+    `).bind(email, endDate).first<{ count: number }>(),
+    db.prepare(`
+      SELECT main_goal AS mainGoal, departure_date AS departureDate
+      FROM daily_departures WHERE user_email = ? AND departure_date BETWEEN ? AND ?
+      ORDER BY departure_date DESC LIMIT 1
+    `).bind(email, startDate, endDate).first<{ mainGoal: string; departureDate: string }>(),
+  ]);
+
+  const typeCounts = new Map<string, number>();
+  for (const item of completed.results) typeCounts.set(item.type, (typeCounts.get(item.type) ?? 0) + 1);
+  const typeBreakdown = [...typeCounts.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((left, right) => right.count - left.count || left.type.localeCompare(right.type));
+  const completedCount = completed.results.length;
+  const plannedFocusMinutes = Number(focus?.planned ?? 0);
+  const actualFocusMinutes = Number(focus?.actual ?? 0);
+  const focusAchievementRate = plannedFocusMinutes
+    ? Math.min(200, Math.round(actualFocusMinutes / plannedFocusMinutes * 100))
+    : actualFocusMinutes ? 100 : 0;
+  const topType = typeBreakdown[0];
+  const postponedType = postponed ? { type: postponed.type, count: Number(postponed.count) } : null;
+  const mainRemaining = Number(unfinishedMain?.count ?? 0);
+  const energyCompletion = ["low", "medium", "high"].map((energyLevel) => {
+    const row = energy.results.find((item) => item.energyLevel === energyLevel);
+    const planned = Number(row?.planned ?? 0);
+    const completedForEnergy = Number(row?.completed ?? 0);
+    return {
+      energyLevel,
+      planned,
+      completed: completedForEnergy,
+      rate: planned ? Math.round(completedForEnergy / planned * 100) : null,
+    };
+  });
+  const keep = topType
+    ? `保留「${topType.type}」节奏：本周完成 ${topType.count} 项，是最稳定的行动类型。`
+    : "保留每日启程：先选定一件最重要的事，让行动从最小一步开始。";
+  const reduce = plannedFocusMinutes > 0 && actualFocusMinutes < plannedFocusMinutes * 0.7
+    ? `减少过量计划：下周每日计划专注可先降低约 ${Math.max(5, Math.round((plannedFocusMinutes - actualFocusMinutes) / 7 / 5) * 5)} 分钟。`
+    : postponedType
+      ? `减少「${postponedType.type}」积压：本周有 ${postponedType.count} 项发生延期，建议拆成更小步骤。`
+      : "减少无截止日期的堆积：只保留能在下周真正推进的任务。";
+  const prioritize = mainRemaining
+    ? `优先清理主线：当前有 ${mainRemaining} 项主线待完成，先为最重要的一项预留专注时间。`
+    : "优先延续本周成果：从完成度最高的方向选择下一条主线。";
+  const bestCompleted = completed.results[0];
+  const highlight = bestCompleted
+    ? { title: bestCompleted.title, reward: Number(bestCompleted.reward), date: bestCompleted.completedDate }
+    : latestDeparture
+      ? { title: latestDeparture.mainGoal, reward: 0, date: latestDeparture.departureDate }
+      : null;
+
+  return {
+    startDate,
+    endDate,
+    completedCount,
+    completedItems: completed.results.slice(0, 5),
+    typeBreakdown,
+    plannedFocusMinutes,
+    actualFocusMinutes,
+    focusAchievementRate,
+    postponedType,
+    energyCompletion,
+    recommendations: { keep, reduce, prioritize },
+    highlight,
+  };
+}
+
 async function dashboard(email: string, requestedClientDate?: string | null) {
   const db = env.DB;
   const clientDate = validClientDate(requestedClientDate);
   await ensureDailySystemQuests(email, clientDate);
   await syncRealmUnlock(email);
   const habit = await habitState(email, clientDate, true);
+  const weeklyReport = await weeklyVoyageReport(email, clientDate);
   const dailyDeparture = await db.prepare(`
     SELECT departure_date AS departureDate, main_goal AS mainGoal,
       focus_goal_minutes AS focusGoalMinutes, energy_level AS energyLevel,
@@ -779,6 +903,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     recentQuestCompletions: recentQuestCompletions.results,
     focusHistory: focusHistory.results,
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
+    weeklyReport,
     dailyDeparture: dailyDeparture ?? null,
     habit,
     habitSettings: savedHabitSettings
