@@ -689,3 +689,33 @@ test("allows consent-based team switching while preserving the previous team", a
   assert.match(styles, /\.team-switch-card/);
   assert.match(styles, /\.team-switch-invitations/);
 });
+
+test("adds a focused daily departure, user-timed reminders and gentle streak rewards", async () => {
+  const [client, route, schema, migration, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0015_big_rhino.sql", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /今天最重要的一件事是什么/);
+  assert.match(client, /开始今日冒险/);
+  assert.match(client, /每天最多发送 2 次主动通知/);
+  assert.match(client, /starcamp-proactive-reminders/);
+  assert.match(client, /历史最长/);
+  assert.match(client, /休整券/);
+  assert.match(client, /限定头像与装饰/);
+  assert.match(route, /body\.action === "startDailyDeparture"/);
+  assert.match(route, /body\.action === "updateHabitSettings"/);
+  assert.match(route, /body\.action === "useHabitRestTicket"/);
+  assert.match(route, /grantHabitRewards/);
+  assert.match(route, /habit-supply-box/);
+  assert.match(schema, /dailyDepartures = sqliteTable\("daily_departures"/);
+  assert.match(schema, /habitSettings = sqliteTable\("habit_settings"/);
+  assert.match(schema, /habitRestDays = sqliteTable\("habit_rest_days"/);
+  assert.match(schema, /habitRewards = sqliteTable\("habit_rewards"/);
+  assert.match(migration, /CREATE TABLE `daily_departures`/);
+  assert.match(styles, /\.daily-departure-page/);
+  assert.match(styles, /\.habit-hub/);
+});

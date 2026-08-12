@@ -80,6 +80,43 @@ export const focusSessions = sqliteTable("focus_sessions", {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [index("focus_sessions_daily_idx").on(table.userEmail, table.completedDate)]);
 
+export const dailyDepartures = sqliteTable("daily_departures", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  departureDate: text("departure_date").notNull(),
+  mainGoal: text("main_goal").notNull(),
+  focusGoalMinutes: integer("focus_goal_minutes").notNull().default(25),
+  energyLevel: text("energy_level").notNull().default("medium"),
+  startedAt: text("started_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userEmail, table.departureDate] }),
+  index("daily_departures_activity_idx").on(table.userEmail, table.departureDate),
+]);
+
+export const habitSettings = sqliteTable("habit_settings", {
+  userEmail: text("user_email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
+  departureReminder: text("departure_reminder").default("08:30"),
+  mainReminder: text("main_reminder").default("17:30"),
+  reviewReminder: text("review_reminder").default("21:30"),
+  notificationsEnabled: integer("notifications_enabled", { mode: "boolean" }).notNull().default(false),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const habitRestDays = sqliteTable("habit_rest_days", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  restDate: text("rest_date").notNull(),
+  monthKey: text("month_key").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userEmail, table.restDate] }),
+  index("habit_rest_days_month_idx").on(table.userEmail, table.monthKey),
+]);
+
+export const habitRewards = sqliteTable("habit_rewards", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  milestone: integer("milestone").notNull(),
+  claimedAt: text("claimed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [primaryKey({ columns: [table.userEmail, table.milestone] })]);
+
 export const teams = sqliteTable("teams", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   name: text("name").notNull(),

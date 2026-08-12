@@ -339,6 +339,7 @@ function makeCode(prefix: string, value: string) {
 
 const avatarLevels: Record<string, number> = {
   initial: 1,
+  streak30: 1,
   dawn: 100,
   quill: 125,
   ember: 150,
@@ -355,6 +356,99 @@ async function addNotification(userEmail: string, kind: string, title: string, b
     INSERT INTO site_notifications (user_email, kind, title, body, entity_id)
     VALUES (?, ?, ?, ?, ?)
   `).bind(userEmail, kind, title.slice(0, 80), body.slice(0, 220), entityId ?? null).run();
+}
+
+const HABIT_REST_TICKETS_PER_MONTH = 2;
+const habitMilestones = [7, 14, 30] as const;
+
+function shiftDate(date: string, days: number) {
+  const moment = new Date(`${date}T12:00:00Z`);
+  moment.setUTCDate(moment.getUTCDate() + days);
+  return moment.toISOString().slice(0, 10);
+}
+
+function longestDateStreak(dates: Set<string>) {
+  const ordered = [...dates].sort();
+  let longest = 0;
+  let run = 0;
+  let previous = "";
+  for (const date of ordered) {
+    run = previous && shiftDate(previous, 1) === date ? run + 1 : 1;
+    longest = Math.max(longest, run);
+    previous = date;
+  }
+  return longest;
+}
+
+async function habitActivityDates(email: string) {
+  const rows = await env.DB.prepare(`
+    SELECT activity_date AS date FROM (
+      SELECT departure_date AS activity_date FROM daily_departures WHERE user_email = ?
+      UNION
+      SELECT completed_date AS activity_date FROM quest_completions WHERE user_email = ?
+      UNION
+      SELECT completed_date AS activity_date FROM focus_sessions WHERE user_email = ? AND completed_date IS NOT NULL
+      UNION
+      SELECT rest_date AS activity_date FROM habit_rest_days WHERE user_email = ?
+    ) WHERE activity_date IS NOT NULL ORDER BY activity_date
+  `).bind(email, email, email, email).all<{ date: string }>();
+  return new Set(rows.results.map((row) => row.date));
+}
+
+async function grantHabitRewards(email: string, longestStreak: number) {
+  const rewards = {
+    7: { item: "habit-supply-box", coins: 100, title: "七日星火补给已抵达", body: "连续启程 7 天：小型补给箱与 100 星辉已收入行囊。" },
+    14: { item: "rare-medal-fragment", coins: 180, title: "十四日稀有碎片已获得", body: "连续启程 14 天：稀有勋章碎片与 180 星辉已收入行囊。" },
+    30: { item: "starfire-camp-decor", coins: 300, title: "三十日限定荣誉已解锁", body: "连续启程 30 天：星火营地装饰、限定头像与 300 星辉已解锁。" },
+  } as const;
+  for (const milestone of habitMilestones) {
+    if (longestStreak < milestone) continue;
+    const inserted = await env.DB.prepare(`
+      INSERT OR IGNORE INTO habit_rewards (user_email, milestone) VALUES (?, ?)
+    `).bind(email, milestone).run();
+    if (!Number(inserted.meta.changes || 0)) continue;
+    const reward = rewards[milestone];
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET coins = coins + ? WHERE email = ?").bind(reward.coins, email),
+      env.DB.prepare(`
+        INSERT INTO inventory (user_email, item_key, quantity) VALUES (?, ?, 1)
+        ON CONFLICT(user_email, item_key) DO UPDATE SET quantity = quantity + 1, acquired_at = CURRENT_TIMESTAMP
+      `).bind(email, reward.item),
+    ]);
+    await addNotification(email, `habit_streak_${milestone}`, reward.title, reward.body);
+  }
+}
+
+async function habitState(email: string, clientDate: string, grantRewards = false) {
+  const activeDates = await habitActivityDates(email);
+  const yesterday = shiftDate(clientDate, -1);
+  let cursor = activeDates.has(clientDate) ? clientDate : activeDates.has(yesterday) ? yesterday : "";
+  let currentStreak = 0;
+  while (cursor && activeDates.has(cursor)) {
+    currentStreak += 1;
+    cursor = shiftDate(cursor, -1);
+  }
+  let longestStreak = longestDateStreak(activeDates);
+  if (grantRewards) {
+    await grantHabitRewards(email, longestStreak);
+    longestStreak = longestDateStreak(activeDates);
+  }
+  const monthKey = clientDate.slice(0, 7);
+  const restUsed = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM habit_rest_days WHERE user_email = ? AND month_key = ?
+  `).bind(email, monthKey).first<{ count: number }>();
+  const claimed = await env.DB.prepare(`
+    SELECT milestone FROM habit_rewards WHERE user_email = ? ORDER BY milestone
+  `).bind(email).all<{ milestone: number }>();
+  const restTicketsRemaining = Math.max(0, HABIT_REST_TICKETS_PER_MONTH - Number(restUsed?.count ?? 0));
+  return {
+    currentStreak,
+    longestStreak,
+    activeDays: activeDates.size,
+    restTicketsRemaining,
+    canRepairYesterday: restTicketsRemaining > 0 && activeDates.has(clientDate) && !activeDates.has(yesterday),
+    claimedMilestones: claimed.results.map((row) => Number(row.milestone)),
+  };
 }
 
 async function moveUserToTeam(userEmail: string, targetTeamId: number) {
@@ -521,6 +615,23 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
   const clientDate = validClientDate(requestedClientDate);
   await ensureDailySystemQuests(email, clientDate);
   await syncRealmUnlock(email);
+  const habit = await habitState(email, clientDate, true);
+  const dailyDeparture = await db.prepare(`
+    SELECT departure_date AS departureDate, main_goal AS mainGoal,
+      focus_goal_minutes AS focusGoalMinutes, energy_level AS energyLevel,
+      started_at AS startedAt
+    FROM daily_departures WHERE user_email = ? AND departure_date = ?
+  `).bind(email, clientDate).first();
+  const savedHabitSettings = await db.prepare(`
+    SELECT departure_reminder AS departureReminder, main_reminder AS mainReminder,
+      review_reminder AS reviewReminder, notifications_enabled AS notificationsEnabled
+    FROM habit_settings WHERE user_email = ?
+  `).bind(email).first<{
+    departureReminder: string | null;
+    mainReminder: string | null;
+    reviewReminder: string | null;
+    notificationsEnabled: number;
+  }>();
   const user = await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<UserRow>();
   const quests = await db.prepare(`
     SELECT id, title, detail, type, reward, source, due_at AS dueAt,
@@ -668,6 +779,11 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     recentQuestCompletions: recentQuestCompletions.results,
     focusHistory: focusHistory.results,
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
+    dailyDeparture: dailyDeparture ?? null,
+    habit,
+    habitSettings: savedHabitSettings
+      ? { ...savedHabitSettings, notificationsEnabled: Boolean(savedHabitSettings.notificationsEnabled) }
+      : { departureReminder: "08:30", mainReminder: "17:30", reviewReminder: "21:30", notificationsEnabled: false },
     inventory: inventory.results,
     realmProgress: realmProgress.results,
     realmGates,
@@ -693,6 +809,7 @@ export async function GET(request: Request) {
     const clientDate = new URL(request.url).searchParams.get("clientDate");
     return Response.json(await dashboard(identity.email, clientDate));
   } catch (error) {
+    console.error("Game dashboard failed", error);
     return Response.json({ error: error instanceof Error ? error.message : "读取失败" }, { status: 500 });
   }
 }
@@ -729,16 +846,87 @@ export async function POST(request: Request) {
       decision?: string;
       avatarKey?: string;
       customAvatar?: string;
+      mainGoal?: string;
+      focusGoalMinutes?: number;
+      energyLevel?: string;
+      departureReminder?: string | null;
+      mainReminder?: string | null;
+      reviewReminder?: string | null;
+      notificationsEnabled?: boolean;
     };
     const db = env.DB;
 
-    if (body.action === "updateAvatar") {
+    if (body.action === "startDailyDeparture") {
+      const clientDate = validClientDate(body.clientDate);
+      const mainGoal = (body.mainGoal ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
+      const focusGoalMinutes = Math.max(5, Math.min(240, Math.round(Number(body.focusGoalMinutes) || 25)));
+      const energyLevel = ["low", "medium", "high"].includes(body.energyLevel ?? "") ? body.energyLevel! : "medium";
+      if (mainGoal.length < 2) return Response.json({ error: "请写下今天最重要的一件事" }, { status: 400 });
+      const energyLabel = energyLevel === "low" ? "低" : energyLevel === "high" ? "高" : "中";
+      await db.batch([
+        db.prepare(`
+          INSERT INTO daily_departures
+            (user_email, departure_date, main_goal, focus_goal_minutes, energy_level)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_email, departure_date) DO UPDATE SET
+            main_goal = excluded.main_goal,
+            focus_goal_minutes = excluded.focus_goal_minutes,
+            energy_level = excluded.energy_level
+        `).bind(identity.email, clientDate, mainGoal, focusGoalMinutes, energyLevel),
+        db.prepare(`
+          INSERT INTO quests
+            (user_email, title, detail, type, reward, source, due_at, external_id)
+          VALUES (?, ?, ?, '主线', 60, 'daily-departure', ?, ?)
+          ON CONFLICT(user_email, source, external_id) DO UPDATE SET
+            title = excluded.title,
+            detail = excluded.detail,
+            due_at = excluded.due_at
+        `).bind(identity.email, mainGoal, `今日启程主线 · 当前精力：${energyLabel} · 计划专注 ${focusGoalMinutes} 分钟`, clientDate, `departure:${clientDate}`),
+      ]);
+    } else if (body.action === "updateHabitSettings") {
+      const parseReminder = (value: string | null | undefined) => {
+        if (value === null || value === undefined || value.trim() === "") return null;
+        const time = value.trim();
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error("提醒时间格式不正确");
+        return time;
+      };
+      const departureReminder = parseReminder(body.departureReminder);
+      const mainReminder = parseReminder(body.mainReminder);
+      const reviewReminder = parseReminder(body.reviewReminder);
+      await db.prepare(`
+        INSERT INTO habit_settings
+          (user_email, departure_reminder, main_reminder, review_reminder, notifications_enabled, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_email) DO UPDATE SET
+          departure_reminder = excluded.departure_reminder,
+          main_reminder = excluded.main_reminder,
+          review_reminder = excluded.review_reminder,
+          notifications_enabled = excluded.notifications_enabled,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(identity.email, departureReminder, mainReminder, reviewReminder, body.notificationsEnabled ? 1 : 0).run();
+    } else if (body.action === "useHabitRestTicket") {
+      const clientDate = validClientDate(body.clientDate);
+      const restDate = shiftDate(clientDate, -1);
+      const activeDates = await habitActivityDates(identity.email);
+      if (activeDates.has(restDate)) return Response.json({ error: "昨天已有冒险记录，不需要使用休整券" }, { status: 400 });
+      if (!activeDates.has(clientDate)) return Response.json({ error: "请先完成今天的每日启程" }, { status: 400 });
+      const current = await habitState(identity.email, clientDate);
+      if (current.restTicketsRemaining <= 0) return Response.json({ error: "本月休整券已用完" }, { status: 400 });
+      await db.prepare(`
+        INSERT OR IGNORE INTO habit_rest_days (user_email, rest_date, month_key) VALUES (?, ?, ?)
+      `).bind(identity.email, restDate, clientDate.slice(0, 7)).run();
+    } else if (body.action === "updateAvatar") {
       const user = await db.prepare("SELECT xp FROM users WHERE email = ?").bind(identity.email).first<{ xp: number }>();
       const level = Math.floor(Math.max(0, user?.xp ?? 0) / 100) + 1;
       const avatarKey = (body.avatarKey ?? "").trim();
       const requiredLevel = avatarLevels[avatarKey];
       if (!requiredLevel) return Response.json({ error: "头像不存在" }, { status: 404 });
       if (level < requiredLevel) return Response.json({ error: `该头像将在 Lv.${requiredLevel} 解锁` }, { status: 403 });
+      if (avatarKey === "streak30") {
+        const reward = await db.prepare("SELECT 1 FROM habit_rewards WHERE user_email = ? AND milestone = 30")
+          .bind(identity.email).first();
+        if (!reward) return Response.json({ error: "连续启程 30 天后解锁该头像" }, { status: 403 });
+      }
       let customAvatar: string | null = null;
       if (avatarKey === "custom") {
         customAvatar = (body.customAvatar ?? "").trim();
@@ -1147,6 +1335,7 @@ export async function POST(request: Request) {
 
     return Response.json(await dashboard(identity.email, body.clientDate));
   } catch (error) {
+    console.error("Game action failed", error);
     const message = error instanceof Error ? error.message : "操作失败";
     return Response.json({ error: message.includes("UNIQUE") ? "该操作已经完成" : message }, { status: 500 });
   }

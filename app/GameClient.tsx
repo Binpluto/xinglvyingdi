@@ -22,6 +22,9 @@ type RealmGate = { realmId: string; sequence: number; unlocked: boolean; eligibl
 type CalendarConnection = { connected: boolean; googleEmail: string | null; lastSyncedAt: string | null };
 type CalendarAccess = { active: boolean; status: "free" | "founder" | "trial" | "paid" | "level_reward" | "expired"; accessUntil: string | null; trialStartedAt: string | null; trialAvailable: boolean; daysRemaining: number; levelRewardEligible: boolean; levelRewardClaimed: boolean };
 type PremiumProgram = { isAdmin: boolean; isFreeMember: boolean; maxSlots: number; occupiedSlots: number; slots: Array<{ slot: number; email: string | null }> };
+type DailyDeparture = { departureDate: string; mainGoal: string; focusGoalMinutes: number; energyLevel: "low" | "medium" | "high"; startedAt: string };
+type HabitSettings = { departureReminder: string | null; mainReminder: string | null; reviewReminder: string | null; notificationsEnabled: boolean };
+type HabitState = { currentStreak: number; longestStreak: number; activeDays: number; restTicketsRemaining: number; canRepairYesterday: boolean; claimedMilestones: number[] };
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number; avatarKey: string; customAvatar: string | null };
   quests: Quest[];
@@ -30,6 +33,9 @@ type GameData = {
   recentQuestCompletions: QuestCompletionRecord[];
   focusHistory: FocusRecord[];
   todayFocusMinutes: number;
+  dailyDeparture: DailyDeparture | null;
+  habitSettings: HabitSettings;
+  habit: HabitState;
   inventory: InventoryItem[];
   realmProgress: RealmProgress[];
   realmGates: RealmGate[];
@@ -89,6 +95,7 @@ const XP_PER_LEVEL = 100;
 const levelFromXp = (xp: number) => Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
 const avatarCatalog = [
   { key: "initial", symbol: "初", name: "初心印记", level: 1 },
+  { key: "streak30", symbol: "🔥", name: "三十日星冠", level: 1 },
   { key: "dawn", symbol: "☼", name: "曦华晨星", level: 100 },
   { key: "quill", symbol: "✒", name: "苍冠羽笔", level: 125 },
   { key: "ember", symbol: "☀", name: "赤土烈阳", level: 150 },
@@ -467,6 +474,48 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
     }, 120000);
     return () => window.clearInterval(interval);
   }, [data?.calendarConnection.connected, data?.calendarAccess.active]);
+  useEffect(() => {
+    if (!data?.habitSettings.notificationsEnabled || !("Notification" in window)) return;
+    const checkReminders = async () => {
+      if (Notification.permission !== "granted") return;
+      const now = new Date();
+      const today = localDateKey(now);
+      const storageKey = `starcamp-proactive-reminders:${identity.email}:${today}`;
+      let sent: string[] = [];
+      try { sent = JSON.parse(window.localStorage.getItem(storageKey) || "[]"); } catch { sent = []; }
+      if (sent.length >= 2) return;
+      const minuteNow = now.getHours() * 60 + now.getMinutes();
+      const due = (value: string | null) => {
+        if (!value) return false;
+        const [hour, minute] = value.split(":").map(Number);
+        const delta = minuteNow - (hour * 60 + minute);
+        return delta >= 0 && delta <= 15;
+      };
+      const mainQuest = sortQuests(data.quests).find((quest) => !quest.done && quest.type === "主线" && (!quest.dueAt || quest.dueAt.slice(0, 10) <= today));
+      const remainingFocus = Math.max(5, (data.dailyDeparture?.focusGoalMinutes ?? 15) - data.todayFocusMinutes);
+      const candidates = [
+        !data.dailyDeparture && due(data.habitSettings.departureReminder)
+          ? { key: "departure", body: "用 20 秒选择今日主线与专注时长，然后立刻开始第一步。" } : null,
+        mainQuest && due(data.habitSettings.mainReminder)
+          ? { key: "main", body: `完成今日主线「${mainQuest.title}」只需再专注 ${remainingFocus} 分钟。` } : null,
+        due(data.habitSettings.reviewReminder)
+          ? { key: "review", body: `今天已完成 ${data.questActivity.find((day) => day.date === today)?.count ?? 0} 项任务、专注 ${data.todayFocusMinutes} 分钟，花 1 分钟复盘并准备明日航线。` } : null,
+      ].filter((item): item is { key: string; body: string } => Boolean(item));
+      for (const reminder of candidates) {
+        if (sent.length >= 2 || sent.includes(reminder.key)) continue;
+        try {
+          const registration = await navigator.serviceWorker?.ready;
+          if (registration) await registration.showNotification("星旅营地 · 行动提醒", { body: reminder.body, icon: "/app-icon-192.png", tag: `starcamp-${today}-${reminder.key}` });
+          else new Notification("星旅营地 · 行动提醒", { body: reminder.body, icon: "/app-icon-192.png", tag: `starcamp-${today}-${reminder.key}` });
+          sent.push(reminder.key);
+          window.localStorage.setItem(storageKey, JSON.stringify(sent));
+        } catch { /* 浏览器拒绝系统通知时保持安静 */ }
+      }
+    };
+    void checkReminders();
+    const interval = window.setInterval(() => void checkReminders(), 30000);
+    return () => window.clearInterval(interval);
+  }, [data, identity.email]);
 
   async function load() {
     const res = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`);
@@ -564,6 +613,18 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
   }
 
+  if (!data.dailyDeparture) {
+    return <><DailyDeparturePage name={displayName} onStart={async (payload) => {
+      const started = await act({ action: "startDailyDeparture", ...payload }, "今日航向已保存，主线任务已生成");
+      if (started) {
+        setFocusMinutes(payload.focusGoalMinutes);
+        setTimer(payload.focusGoalMinutes * 60);
+        setTab("任务");
+      }
+      return started;
+    }} />{toast && <div className="toast">✦ {toast}</div>}</>;
+  }
+
   return (
     <main className={`app-shell realm-${activeRealm?.style ?? "base"}`} data-realm={activeRealm?.id ?? "base"}>
       <div className="aurora aurora-one" /><div className="aurora aurora-two" />
@@ -594,7 +655,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
                 <h4>旅行者升级规则</h4>
                 <p>从 Lv.1、0 EXP 开始，每累计 100 EXP 提升 1 级。</p>
                 <ul><li><span>完成任务</span><b>+25～80 EXP</b></li><li><span>专注修行</span><b>每分钟 +2 EXP</b></li><li><span>邀请好友</span><b>双方 +100 / +200 EXP</b></li></ul>
-                <div className="avatar-unlock-panel"><div><b>百级头像工坊</b><small>{level < 100 ? `Lv.100 开放 · 还差 ${100 - level} 级` : "等级越高，可选择的头像越多"}</small></div><div className="avatar-choice-grid">{avatarCatalog.map((choice) => { const unlocked = level >= choice.level; return <button key={choice.key} className={data.user.avatarKey === choice.key ? "selected" : ""} disabled={!unlocked} title={unlocked ? choice.name : `Lv.${choice.level} 解锁`} onClick={() => void act({ action: "updateAvatar", avatarKey: choice.key }, `已换上「${choice.name}」头像`)}><span>{choice.key === "initial" ? displayName.slice(0, 1) : choice.symbol}</span><small>{unlocked ? choice.name : `Lv.${choice.level}`}</small></button>})}</div>{level >= 100 && <div className="custom-avatar-row"><label><span>自定义文字/符号头像</span><input value={customAvatarDraft} onChange={(event) => setCustomAvatarDraft(Array.from(event.target.value).slice(0, 2).join(""))} placeholder="如：🌙 或 旅" /></label><button disabled={!customAvatarDraft.trim()} onClick={() => void act({ action: "updateAvatar", avatarKey: "custom", customAvatar: customAvatarDraft }, "自定义头像已保存到云端")}>使用</button></div>}</div>
+                <div className="avatar-unlock-panel"><div><b>百级头像工坊 · 荣誉头像</b><small>{level < 100 ? `百级头像 Lv.100 开放 · 还差 ${100 - level} 级` : "等级越高，可选择的头像越多"}</small></div><div className="avatar-choice-grid">{avatarCatalog.map((choice) => { const streakLocked = choice.key === "streak30" && !data.habit.claimedMilestones.includes(30); const unlocked = level >= choice.level && !streakLocked; const lockLabel = streakLocked ? "连续启程 30 天" : `Lv.${choice.level}`; return <button key={choice.key} className={data.user.avatarKey === choice.key ? "selected" : ""} disabled={!unlocked} title={unlocked ? choice.name : `${lockLabel} 解锁`} onClick={() => void act({ action: "updateAvatar", avatarKey: choice.key }, `已换上「${choice.name}」头像`)}><span>{choice.key === "initial" ? displayName.slice(0, 1) : choice.symbol}</span><small>{unlocked ? choice.name : lockLabel}</small></button>})}</div>{level >= 100 && <div className="custom-avatar-row"><label><span>自定义文字/符号头像</span><input value={customAvatarDraft} onChange={(event) => setCustomAvatarDraft(Array.from(event.target.value).slice(0, 2).join(""))} placeholder="如：🌙 或 旅" /></label><button disabled={!customAvatarDraft.trim()} onClick={() => void act({ action: "updateAvatar", avatarKey: "custom", customAvatar: customAvatarDraft }, "自定义头像已保存到云端")}>使用</button></div>}</div>
                 <div className="continent-level-rules"><b>大陆解锁门槛</b>{continents.map((realm) => <span key={realm.id}><i>{realm.icon}</i>{realm.name}<em>{realm.id === "dawn" ? "默认解锁" : `${realm.xpRequired} EXP · ${realm.difficulty}`}</em></span>)}</div>
                 <small className="level-world-note">曦华大陆默认开放。其余大陆按固定顺序解锁，必须同时完成前一大陆试炼，并达到经验、系统任务、专注、邀请好友和小组人数门槛。</small>
                 <div className="account-data-actions"><a href="/privacy.html" target="_blank" rel="noreferrer">隐私政策</a><button onClick={() => { setShowLevelGuide(false); setShowAccountDeletion(true); }}>删除账号与云端数据</button></div>
@@ -638,6 +699,78 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   );
 }
 
+function DailyDeparturePage({ name, onStart }: { name: string; onStart: (payload: { mainGoal: string; focusGoalMinutes: number; energyLevel: "low" | "medium" | "high" }) => Promise<boolean> }) {
+  const [mainGoal, setMainGoal] = useState("");
+  const [focusGoalMinutes, setFocusGoalMinutes] = useState(25);
+  const [energyLevel, setEnergyLevel] = useState<"low" | "medium" | "high">("medium");
+  const [submitting, setSubmitting] = useState(false);
+  async function start() {
+    if (mainGoal.trim().length < 2 || submitting) return;
+    setSubmitting(true);
+    await onStart({ mainGoal: mainGoal.trim(), focusGoalMinutes, energyLevel });
+    setSubmitting(false);
+  }
+  return <main className="daily-departure-page">
+    <div className="departure-glow departure-glow-one" /><div className="departure-glow departure-glow-two" />
+    <section className="daily-departure-card" aria-labelledby="daily-departure-title">
+      <header><span className="departure-seal">✦</span><small>DAILY DEPARTURE · 每日启程</small><h1 id="daily-departure-title">早安，{name}</h1><p>先确定今天的航向，再进入营地。只需 20 秒。</p></header>
+      <label className="departure-main-goal"><span>今天最重要的一件事是什么？</span><input autoFocus maxLength={80} value={mainGoal} onChange={(event) => setMainGoal(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void start(); }} placeholder="例如：完成产品方案第一版" /></label>
+      <fieldset><legend>今天准备专注多少分钟？</legend><div className="departure-focus-options">{[15, 25, 45, 60].map((minutes) => <button type="button" className={focusGoalMinutes === minutes ? "active" : ""} key={minutes} onClick={() => setFocusGoalMinutes(minutes)}><b>{minutes}</b><span>分钟</span></button>)}</div></fieldset>
+      <fieldset><legend>当前精力</legend><div className="departure-energy-options">{[
+        ["low", "低", "轻装出发"], ["medium", "中", "稳定推进"], ["high", "高", "全力远征"],
+      ].map(([key, label, note]) => <button type="button" key={key} className={energyLevel === key ? `active energy-${key}` : ""} onClick={() => setEnergyLevel(key as "low" | "medium" | "high")}><i /><b>{label}</b><span>{note}</span></button>)}</div></fieldset>
+      <button className="departure-start" disabled={mainGoal.trim().length < 2 || submitting} onClick={() => void start()}>{submitting ? "正在生成今日航线…" : "开始今日冒险"}<span>→</span></button>
+      <footer><span>今日主线会自动加入任务页</span><span>云端保存</span></footer>
+    </section>
+  </main>;
+}
+
+function HabitHub({ data, act }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+  const [settings, setSettings] = useState<HabitSettings>(data.habitSettings);
+  const [saving, setSaving] = useState(false);
+  const [permission, setPermission] = useState<NotificationPermission | "unsupported">("default");
+  useEffect(() => setSettings(data.habitSettings), [data.habitSettings]);
+  useEffect(() => setPermission("Notification" in window ? Notification.permission : "unsupported"), []);
+  async function requestNotificationPermission() {
+    if (!("Notification" in window)) return;
+    const result = await Notification.requestPermission();
+    setPermission(result);
+    if (result === "granted") setSettings((current) => ({ ...current, notificationsEnabled: true }));
+  }
+  async function saveSettings() {
+    setSaving(true);
+    await act({ action: "updateHabitSettings", ...settings }, settings.notificationsEnabled ? "行动提醒已保存到云端" : "主动提醒已关闭");
+    setSaving(false);
+  }
+  const rewardSteps = [
+    { day: 7, icon: "▣", title: "小型补给箱", note: "+100 星辉" },
+    { day: 14, icon: "◇", title: "稀有勋章碎片", note: "+180 星辉" },
+    { day: 30, icon: "♛", title: "限定头像与装饰", note: "+300 星辉" },
+  ];
+  return <section className="habit-hub">
+    <article className="glass-card streak-card">
+      <div className="card-heading"><div><small>连续启程 · 温和坚持</small><h3>星火旅程</h3></div><span className="streak-flame">♨</span></div>
+      <div className="streak-stats"><div><strong>{data.habit.currentStreak}</strong><span>当前连续</span></div><div><strong>{data.habit.longestStreak}</strong><span>历史最长</span></div><div><strong>{data.habit.restTicketsRemaining}</strong><span>本月休整券</span></div></div>
+      <div className="streak-strip" aria-label={`当前连续启程 ${data.habit.currentStreak} 天`}>{Array.from({ length: 30 }, (_, index) => <i key={index} className={index < Math.min(30, data.habit.currentStreak) ? "lit" : ""} />)}</div>
+      <div className="streak-rewards">{rewardSteps.map((reward) => { const claimed = data.habit.claimedMilestones.includes(reward.day); return <div key={reward.day} className={claimed ? "claimed" : data.habit.currentStreak >= reward.day ? "ready" : ""}><span>{claimed ? "✓" : reward.icon}</span><div><b>{reward.day} 天 · {reward.title}</b><small>{claimed ? "已收入行囊" : reward.note}</small></div></div>})}</div>
+      <p>连续 1～6 天积累星火；漏一天不会抹去历史最长记录。每月自动获得 2 张休整券。</p>
+      {data.habit.canRepairYesterday && <button className="rest-ticket-button" onClick={() => void act({ action: "useHabitRestTicket" }, "休整券已使用，昨日星火已被温柔接续")}>使用 1 张休整券修复昨日</button>}
+    </article>
+    <article className="glass-card reminder-card">
+      <div className="card-heading"><div><small>习惯触发点 · 自主选择</small><h3>行动提醒</h3></div><label className="reminder-switch"><input type="checkbox" checked={settings.notificationsEnabled} onChange={(event) => setSettings((current) => ({ ...current, notificationsEnabled: event.target.checked }))} /><i /></label></div>
+      <p className="reminder-limit">每天最多发送 2 次主动通知；专注结束弹窗不计入。</p>
+      <div className="reminder-times">
+        <label><span><i>☼</i><b>每日启程</b><small>选择主线并立即开始</small></span><input type="time" value={settings.departureReminder ?? ""} onChange={(event) => setSettings((current) => ({ ...current, departureReminder: event.target.value || null }))} /></label>
+        <label><span><i>✦</i><b>未完成主线</b><small>告诉你还需专注多久</small></span><input type="time" value={settings.mainReminder ?? ""} onChange={(event) => setSettings((current) => ({ ...current, mainReminder: event.target.value || null }))} /></label>
+        <label><span><i>☾</i><b>睡前复盘</b><small>汇总任务与专注成果</small></span><input type="time" value={settings.reviewReminder ?? ""} onChange={(event) => setSettings((current) => ({ ...current, reviewReminder: event.target.value || null }))} /></label>
+      </div>
+      {permission !== "granted" && <button className="notification-permission" disabled={permission === "denied" || permission === "unsupported"} onClick={() => void requestNotificationPermission()}>{permission === "denied" ? "浏览器通知已被拒绝，请在系统设置中开启" : permission === "unsupported" ? "当前浏览器不支持系统通知" : "允许浏览器发送提醒"}</button>}
+      <button className="save-reminders" disabled={saving || (settings.notificationsEnabled && permission !== "granted")} onClick={() => void saveSettings()}>{saving ? "保存中…" : "保存提醒设置"}</button>
+      <small className="reminder-footnote">网页或已安装的 App/PWA 运行时可准时提醒；完全关闭后需要后续接入系统推送服务。</small>
+    </article>
+  </section>;
+}
+
 function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number; setTab: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; realm: Realm | null }) {
   const energy = campEnergy(data);
   const calendarAgenda = sortQuests(todayRelevantQuests(data.quests).filter((quest) => quest.dueAt && !quest.done)).slice(0, 3);
@@ -660,7 +793,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="profile-card glass-card"><div className="card-heading"><div><small>旅行者档案</small><h3>云端旅程</h3></div><span className="sync-orb">✓</span></div><div className="cloud-stats"><div><b>{data.user.focusMinutes}</b><span>累计专注 / 分钟</span></div><div><b>{data.user.referralCount}</b><span>成功邀请 / 人</span></div><div><b>{data.team?.member_count ?? 0}</b><span>同行伙伴 / 人</span></div></div><blockquote>“因相遇而出发，因同行而抵达。”</blockquote></aside>
     <QuestBoard data={data} done={done} act={act} compact />
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
-  </div><div className="camp-bottom-grid">
+  </div><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
     <section className={`glass-card camp-weather energy-${energy.tone}`}>
       <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>
@@ -990,6 +1123,11 @@ const catalog = [
   { key:"wish-tea", icon:"♨", name:"心愿甜品", note:"兑换一份期待已久的小奖励", price:60, tone:"gold" },
   { key:"adventure-day", icon:"⌁", name:"远方冒险日", note:"安排一场城市探索或近郊旅行", price:260, tone:"violet" },
 ];
+const habitRewardCatalog = [
+  { key:"habit-supply-box", icon:"▣", name:"七日小型补给箱", note:"连续启程 7 天的云端纪念收藏" },
+  { key:"rare-medal-fragment", icon:"◇", name:"稀有勋章碎片", note:"连续启程 14 天获得的稀有碎片" },
+  { key:"starfire-camp-decor", icon:"♨", name:"星火营地装饰", note:"连续启程 30 天获得的限定装饰" },
+];
 
 type AchievementCategory = "任务" | "专注" | "同行" | "世界" | "成长" | "收藏";
 type AchievementRarity = "bronze" | "silver" | "epic" | "legendary";
@@ -1029,8 +1167,8 @@ function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, 
   const currentLevel = levelFromXp(data.user.xp);
   const honorLevels = Array.from({ length: Math.floor(currentLevel / 100) }, (_, index) => (index + 1) * 100).reverse();
   const bestQuestDay = Math.max(0, ...data.questActivity.map((day) => day.count));
-  const activeDays = data.questActivity.filter((day) => day.count > 0).length;
-  const streak = activityStreak(data.questActivity);
+  const activeDays = data.habit.activeDays;
+  const streak = data.habit.currentStreak;
   const unlockedRealms = Math.max(1, data.realmProgress.filter((realm) => realm.unlocked).length);
   const completedRegions = data.realmProgress.reduce((total, realm) => total + realm.completedRegions, 0);
   const teamMembers = data.team?.member_count ?? 0;
@@ -1072,7 +1210,7 @@ function Bag({ data, act }: { data: GameData; act: (p: Record<string, unknown>, 
   const visibleAchievements = achievementFilter === "全部" ? enrichedAchievements : enrichedAchievements.filter((achievement) => achievement.category === achievementFilter);
   const nextAchievement = enrichedAchievements.filter((achievement) => !achievement.unlocked).sort((left, right) => right.progress - left.progress || left.target - right.target)[0];
   const categories: Array<"全部" | AchievementCategory> = ["全部", "任务", "专注", "同行", "世界", "成长", "收藏"];
-  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=catalog.find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon}</span><div><b>{item?.name}</b><small>可随时兑现给自己</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就 · 自动记录</small><h3>冒险勋章册</h3></div><b>{unlockedAchievements.length}/{enrichedAchievements.length} 已解锁</b></div><div className="achievement-overview"><div><span>✦</span><strong>{unlockedAchievements.length}</strong><small>已获得勋章</small></div><div><span>♛</span><strong>{unlockedAchievements.filter((achievement) => achievement.rarity === "legendary").length}</strong><small>传说勋章</small></div>{nextAchievement ? <div className="next-achievement"><span>{nextAchievement.icon}</span><div><small>下一枚最接近</small><b>{nextAchievement.name}</b><em>{nextAchievement.current}/{nextAchievement.target} {nextAchievement.unit}</em></div><i><u style={{ width: `${nextAchievement.progress}%` }} /></i></div> : <div className="next-achievement complete"><span>✺</span><div><small>群星全数点亮</small><b>勋章大师</b><em>全部冒险勋章已获得</em></div></div>}</div><div className="achievement-filters" aria-label="勋章分类">{categories.map((category) => <button key={category} className={achievementFilter === category ? "active" : ""} onClick={() => setAchievementFilter(category)}>{category}<small>{category === "全部" ? enrichedAchievements.length : enrichedAchievements.filter((achievement) => achievement.category === category).length}</small></button>)}</div><div className="achievement-grid enriched">{visibleAchievements.map((achievement) => { const rarity = achievementRarity[achievement.rarity]; return <article key={achievement.name} className={`${achievement.unlocked ? "unlocked" : "locked"} rarity-${achievement.rarity}`}><div className="achievement-medal"><span>{achievement.icon}</span><i>{rarity.stars}</i></div><div className="achievement-copy"><div><em>{achievement.category}</em><small>{rarity.label}</small></div><b>{achievement.name}</b><p>{achievement.story}</p><div className="achievement-progress"><span><i style={{ width: `${achievement.progress}%` }} /></span><small>{achievement.unlocked ? "已获得" : `${achievement.current}/${achievement.target} ${achievement.unit}`}</small></div></div></article>})}</div><div className="honor-certificate-archive"><div className="honor-archive-heading"><div><small>百级远征荣誉</small><h3>专属荣誉奖状</h3></div><span>每 100 级解锁一张 · 包含分享码</span></div>{honorLevels.length ? <div className="honor-certificate-list">{honorLevels.map((honorLevel) => <article key={honorLevel}><span>♜</span><div><small>星旅营地 · 百级荣誉</small><b>Lv.{honorLevel} 远征奖状</b><em>分享码 {data.user.inviteCode}</em></div><button onClick={() => downloadHonorCertificate(honorLevel, data.user.name, data.user.inviteCode)}>下载 PNG</button></article>)}</div> : <div className="honor-certificate-locked"><span>⌾</span><div><b>首张荣誉奖状将在 Lv.100 解锁</b><small>当前 Lv.{currentLevel} · 继续完成任务与专注远征</small></div></div>}</div></section></div></section>;
+  return <section className="bag-panel"><div className="bag-hero"><div><span className="chapter">旅行者行囊</span><h2>收藏每一段认真生活</h2><p>任务获得的星辉，可以兑换你为自己设定的现实奖励。</p></div><div className="bag-balance"><span>当前星辉</span><strong>✦ {data.user.coins}</strong><small>完成任务与邀请好友均可获得</small></div></div><div className="bag-grid"><section className="glass-card reward-shop"><div className="card-heading"><div><small>心愿商店</small><h3>现实奖励</h3></div><span>每一次兑换，都是对努力的回应</span></div><div className="reward-grid">{catalog.map(item => <article key={item.key} className={`reward-item ${item.tone}`}><div className="reward-icon">{item.icon}</div><div><h4>{item.name}</h4><p>{item.note}</p><span>✦ {item.price}</span></div><button disabled={data.user.coins<item.price} onClick={() => void act({action:"buyItem",itemKey:item.key},`已兑换「${item.name}」`)}>{owned.get(item.key) ? `再兑换 · 已有 ${owned.get(item.key)}` : "兑换"}</button></article>)}</div></section><aside className="glass-card inventory-card"><div className="card-heading"><div><small>我的收藏</small><h3>行囊物品</h3></div><span>◇</span></div>{data.inventory.length ? <div className="owned-list">{data.inventory.map(i => { const item=[...catalog,...habitRewardCatalog].find(x=>x.key===i.item_key); return <article key={i.item_key}><span>{item?.icon ?? "✦"}</span><div><b>{item?.name ?? i.item_key}</b><small>{item?.note ?? "云端旅程收藏"}</small></div><em>× {i.quantity}</em></article>})}</div> : <div className="empty-bag"><span>◇</span><p>行囊还是空的<br/>去心愿商店兑换第一份奖励吧。</p></div>}</aside><section className="glass-card achievement-card"><div className="card-heading"><div><small>星旅成就 · 自动记录</small><h3>冒险勋章册</h3></div><b>{unlockedAchievements.length}/{enrichedAchievements.length} 已解锁</b></div><div className="achievement-overview"><div><span>✦</span><strong>{unlockedAchievements.length}</strong><small>已获得勋章</small></div><div><span>♛</span><strong>{unlockedAchievements.filter((achievement) => achievement.rarity === "legendary").length}</strong><small>传说勋章</small></div>{nextAchievement ? <div className="next-achievement"><span>{nextAchievement.icon}</span><div><small>下一枚最接近</small><b>{nextAchievement.name}</b><em>{nextAchievement.current}/{nextAchievement.target} {nextAchievement.unit}</em></div><i><u style={{ width: `${nextAchievement.progress}%` }} /></i></div> : <div className="next-achievement complete"><span>✺</span><div><small>群星全数点亮</small><b>勋章大师</b><em>全部冒险勋章已获得</em></div></div>}</div><div className="achievement-filters" aria-label="勋章分类">{categories.map((category) => <button key={category} className={achievementFilter === category ? "active" : ""} onClick={() => setAchievementFilter(category)}>{category}<small>{category === "全部" ? enrichedAchievements.length : enrichedAchievements.filter((achievement) => achievement.category === category).length}</small></button>)}</div><div className="achievement-grid enriched">{visibleAchievements.map((achievement) => { const rarity = achievementRarity[achievement.rarity]; return <article key={achievement.name} className={`${achievement.unlocked ? "unlocked" : "locked"} rarity-${achievement.rarity}`}><div className="achievement-medal"><span>{achievement.icon}</span><i>{rarity.stars}</i></div><div className="achievement-copy"><div><em>{achievement.category}</em><small>{rarity.label}</small></div><b>{achievement.name}</b><p>{achievement.story}</p><div className="achievement-progress"><span><i style={{ width: `${achievement.progress}%` }} /></span><small>{achievement.unlocked ? "已获得" : `${achievement.current}/${achievement.target} ${achievement.unit}`}</small></div></div></article>})}</div><div className="honor-certificate-archive"><div className="honor-archive-heading"><div><small>百级远征荣誉</small><h3>专属荣誉奖状</h3></div><span>每 100 级解锁一张 · 包含分享码</span></div>{honorLevels.length ? <div className="honor-certificate-list">{honorLevels.map((honorLevel) => <article key={honorLevel}><span>♜</span><div><small>星旅营地 · 百级荣誉</small><b>Lv.{honorLevel} 远征奖状</b><em>分享码 {data.user.inviteCode}</em></div><button onClick={() => downloadHonorCertificate(honorLevel, data.user.name, data.user.inviteCode)}>下载 PNG</button></article>)}</div> : <div className="honor-certificate-locked"><span>⌾</span><div><b>首张荣誉奖状将在 Lv.100 解锁</b><small>当前 Lv.{currentLevel} · 继续完成任务与专注远征</small></div></div>}</div></section></div></section>;
 }
 
 function TeamHall({ data, teamName, setTeamName, teamInput, setTeamInput, act, copy }: { data: GameData; teamName: string; setTeamName: (v: string) => void; teamInput: string; setTeamInput: (v: string) => void; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; copy: (v: string, s: string) => Promise<void> }) {
