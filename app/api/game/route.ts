@@ -105,6 +105,83 @@ const dailySystemQuestPools = [
 
 const DAILY_QUEST_REPEAT_WINDOW = 14;
 
+type SceneTemplateQuest = readonly [title: string, detail: string, type: "主线" | "支线" | "日常", reward: number];
+
+const sceneTemplates: Record<string, { name: string; quests: readonly SceneTemplateQuest[] }> = {
+  exam: {
+    name: "备考远征",
+    quests: [
+      ["完成备考诊断", "列出考试范围、当前掌握度与三个最薄弱章节，形成一页诊断。", "主线", 80],
+      ["搭建复习航线", "按剩余时间拆分章节，排出学习、练习与复盘节点。", "支线", 45],
+      ["攻克薄弱章节", "完成一个薄弱章节的学习，并整理至少 5 条关键笔记。", "主线", 80],
+      ["完成一组限时练习", "模拟真实时限完成练习，记录正确率与超时题。", "日常", 30],
+      ["建立错题星图", "归类错题原因，并为每类错误写下一条纠正策略。", "支线", 45],
+      ["进行一次全真模拟", "按考试流程完成模拟，复盘分数、节奏与下一轮重点。", "主线", 80],
+    ],
+  },
+  thesis: {
+    name: "论文远征",
+    quests: [
+      ["明确论文核心问题", "用一句话写清研究问题、价值与预期结论边界。", "主线", 80],
+      ["建立文献地图", "收集并分类核心文献，标记观点、方法与可引用证据。", "支线", 45],
+      ["冻结论文结构", "完成章节大纲，为每节写下论点、证据和篇幅目标。", "主线", 80],
+      ["完成首段深度写作", "连续写作一个完整小节，先完成内容再统一润色。", "日常", 30],
+      ["补齐证据与引用", "检查关键论点，为缺失处补充数据、文献或访谈证据。", "支线", 45],
+      ["完成一轮整体修订", "检查逻辑、格式和引用一致性，输出可提交版本。", "主线", 80],
+    ],
+  },
+  job: {
+    name: "求职远征",
+    quests: [
+      ["确定目标岗位", "筛选 3 类目标岗位，整理能力要求、地点与优先级。", "主线", 80],
+      ["重写一页简历", "围绕目标岗位量化成果，删除无关经历并完成一版简历。", "主线", 80],
+      ["整理作品与案例", "选出 3 个代表案例，补齐背景、行动、结果与证明材料。", "支线", 45],
+      ["建立投递清单", "收集至少 8 个合适岗位，记录截止日期与跟进状态。", "日常", 30],
+      ["完成一次模拟面试", "练习自我介绍与 5 个高频问题，记录需要改进的表达。", "支线", 45],
+      ["完成高质量投递", "针对岗位调整材料并正式投递，设置后续跟进日期。", "主线", 80],
+    ],
+  },
+  fitness: {
+    name: "健身远征",
+    quests: [
+      ["记录身体起点", "记录体重或围度、当前体能与一个可持续目标。", "主线", 80],
+      ["完成全身力量训练", "训练 30～45 分钟，记录动作、组数和主观强度。", "支线", 45],
+      ["完成低强度有氧", "快走、骑行或游泳 30 分钟，保持可以对话的强度。", "日常", 30],
+      ["准备恢复补给", "规划一日蛋白质、饮水与蔬果，提前准备一份健康餐。", "日常", 30],
+      ["完成渐进训练", "在安全前提下增加一次重量、次数或训练时长。", "支线", 45],
+      ["完成一周体能复盘", "复盘训练、睡眠和疲劳，调整下一周的训练负荷。", "主线", 80],
+    ],
+  },
+  freelance: {
+    name: "自由职业远征",
+    quests: [
+      ["定义本周可交付成果", "选定一个最重要的客户或产品成果，写明验收标准。", "主线", 80],
+      ["划定深度工作时段", "在日历中锁定至少 3 段无会议专注时间。", "日常", 30],
+      ["整理客户与线索", "更新客户、报价、合同与回款状态，标记下一步行动。", "支线", 45],
+      ["完成核心交付", "完成并发送一个可供客户检查的阶段成果。", "主线", 80],
+      ["发布专业内容", "分享一个案例、洞见或作品，让潜在客户看见你的能力。", "支线", 45],
+      ["完成经营复盘", "复盘收入、工时与获客效果，决定下周保留和停止的事项。", "主线", 80],
+    ],
+  },
+  sleep: {
+    name: "早睡远征",
+    quests: [
+      ["设定固定熄灯时间", "选择现实可行的上床与起床时间，并设置睡前提醒。", "主线", 80],
+      ["建立睡前关机仪式", "睡前 30 分钟停止工作与短视频，改为洗漱、拉伸或阅读。", "日常", 30],
+      ["清理睡眠环境", "降低光线与噪音，让卧室保持凉爽并把手机移出伸手范围。", "支线", 45],
+      ["记录睡眠航海日志", "记录上床、入睡、起床时间以及醒来后的精力。", "日常", 30],
+      ["调整白天能量节律", "白天晒太阳并活动 20 分钟，下午后减少咖啡因。", "支线", 45],
+      ["完成一周睡眠复盘", "比较计划与实际入睡时间，找出最常见阻碍并调整。", "主线", 80],
+    ],
+  },
+};
+
+const scenePaces = {
+  gentle: { indexes: [0, 1, 3, 5], offsets: [0, 2, 4, 6], focusMinutes: 25 },
+  standard: { indexes: [0, 1, 2, 3, 4, 5], offsets: [0, 2, 4, 7, 10, 13], focusMinutes: 45 },
+  sprint: { indexes: [0, 1, 2, 3, 4, 5], offsets: [0, 1, 2, 3, 5, 6], focusMinutes: 60 },
+} as const;
+
 function stableQuestOffset(key: string) {
   let hash = 2166136261;
   for (let index = 0; index < key.length; index += 1) {
@@ -978,6 +1055,9 @@ export async function POST(request: Request) {
       mainReminder?: string | null;
       reviewReminder?: string | null;
       notificationsEnabled?: boolean;
+      sceneId?: string;
+      scenePace?: string;
+      templateStartDate?: string;
     };
     const db = env.DB;
 
@@ -1154,6 +1234,33 @@ export async function POST(request: Request) {
       await db.prepare(`
         DELETE FROM quests WHERE user_email = ? AND id IN (${placeholders})
       `).bind(identity.email, ...questIds).run();
+    } else if (body.action === "applySceneTemplate") {
+      const sceneId = (body.sceneId ?? "").trim();
+      const template = sceneTemplates[sceneId];
+      const scenePace = body.scenePace === "gentle" || body.scenePace === "sprint" ? body.scenePace : "standard";
+      const pace = scenePaces[scenePace];
+      const startDate = validClientDate(body.templateStartDate);
+      if (!template) return Response.json({ error: "场景模板不存在" }, { status: 404 });
+      const results = await db.batch(pace.indexes.map((questIndex, scheduleIndex) => {
+        const quest = template.quests[questIndex];
+        const dueAt = shiftDate(startDate, pace.offsets[scheduleIndex]);
+        return db.prepare(`
+          INSERT OR IGNORE INTO quests
+            (user_email, title, detail, type, reward, source, due_at, external_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          identity.email,
+          quest[0],
+          `${quest[1]} · 建议专注 ${pace.focusMinutes} 分钟`,
+          quest[2],
+          quest[3],
+          `scene-template-${sceneId}`,
+          dueAt,
+          `${startDate}:${scenePace}:${questIndex}`,
+        );
+      }));
+      const created = results.reduce((total, result) => total + Number(result.meta.changes || 0), 0);
+      if (!created) return Response.json({ error: "这套场景方案已从同一天启用过，可编辑现有任务或更换开始日期" }, { status: 400 });
     } else if (body.action === "createQuest") {
       const title = (body.title ?? "").trim().slice(0, 40);
       const detail = (body.detail ?? "").trim().slice(0, 100);

@@ -744,3 +744,31 @@ test("builds a one-page weekly voyage report from durable activity records", asy
   assert.match(styles, /\.weekly-voyage-report/);
   assert.match(styles, /\.weekly-recommendations/);
 });
+
+test("launches six editable scene templates as dated cloud task routes", async () => {
+  const [client, route, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  for (const scene of ["备考", "论文", "求职", "健身", "自由职业", "早睡计划"]) {
+    assert.match(client, new RegExp(scene));
+  }
+  assert.match(client, /轻装/);
+  assert.match(client, /标准/);
+  assert.match(client, /冲刺/);
+  assert.match(client, /开始日期/);
+  assert.match(client, /applySceneTemplate/);
+  assert.match(client, /启用后仍可自由编辑或批量删除/);
+  assert.match(client, /isCalendarQuestSource/);
+  assert.match(route, /const sceneTemplates/);
+  assert.match(route, /const scenePaces/);
+  assert.match(route, /body\.action === "applySceneTemplate"/);
+  assert.match(route, /scene-template-\$\{sceneId\}/);
+  assert.match(route, /INSERT OR IGNORE INTO quests/);
+  assert.match(route, /shiftDate\(startDate, pace\.offsets/);
+  assert.match(styles, /Goal-based scene route templates/);
+  assert.match(styles, /\.scene-template-library/);
+  assert.match(styles, /\.scene-template-cards/);
+});
