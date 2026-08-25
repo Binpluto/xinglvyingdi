@@ -884,6 +884,21 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     FROM quest_completions WHERE user_email = ?
     GROUP BY completed_date ORDER BY completed_date
   `).bind(email).all();
+  const questTypeActivity = await db.prepare(`
+    SELECT qc.completed_date AS date,
+      CASE
+        WHEN COALESCE(q.type, '') IN ('主线', '支线', '日常') THEN q.type
+        WHEN qc.source LIKE 'system-daily-hard%' OR qc.source = 'daily-departure' THEN '主线'
+        WHEN qc.source LIKE 'system-daily-medium%' THEN '支线'
+        ELSE '日常'
+      END AS type,
+      COUNT(*) AS count
+    FROM quest_completions qc
+    LEFT JOIN quests q ON q.id = qc.quest_id AND q.user_email = qc.user_email
+    WHERE qc.user_email = ? AND qc.completed_date >= date(?, '-370 days')
+    GROUP BY qc.completed_date, type
+    ORDER BY qc.completed_date, type
+  `).bind(email, clientDate).all();
   const questCompletionTotal = await db.prepare(`
     SELECT COUNT(*) AS count FROM quest_completions WHERE user_email = ?
   `).bind(email).first<{ count: number }>();
@@ -1010,6 +1025,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     },
     quests: quests.results,
     questActivity: questActivity.results,
+    questTypeActivity: questTypeActivity.results,
     questCompletionTotal: questCompletionTotal?.count ?? 0,
     recentQuestCompletions: recentQuestCompletions.results,
     focusHistory: focusHistory.results,

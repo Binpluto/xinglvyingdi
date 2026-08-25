@@ -158,7 +158,12 @@ test("supports encrypted direct Google Calendar synchronization", async () => {
   ]);
 
   assert.match(client, /连接 Google 日历/);
-  assert.match(client, /每两分钟检查一次变化/);
+  assert.match(client, /设备当地时间 08:00、12:00、20:00/);
+  assert.match(client, /CALENDAR_SYNC_HOURS = \[8, 12, 20\]/);
+  assert.match(client, /latestCalendarSyncSlot/);
+  assert.match(client, /nextCalendarSyncSlot/);
+  assert.match(client, /parseCalendarSyncTimestamp/);
+  assert.doesNotMatch(client, /120000/);
   assert.match(helper, /calendar\.readonly/);
   assert.match(helper, /AES-GCM/);
   assert.match(helper, /syncToken/);
@@ -518,6 +523,33 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(migration, /UPDATE `quests` SET `completed_at` = `created_at`/);
   assert.match(activityMigration, /CREATE TABLE `quest_completions`/);
   assert.match(activityMigration, /INSERT OR IGNORE INTO `quest_completions`/);
+});
+
+test("analyzes completed main, side and daily quest shares by day, week and month", async () => {
+  const [client, route, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /QuestTypeAnalytics/);
+  assert.match(client, /主线、支线与日常完成占比/);
+  assert.match(client, /\["day", "每日"\]/);
+  assert.match(client, /\["week", "每周"\]/);
+  assert.match(client, /\["month", "每月"\]/);
+  assert.match(client, /questMixBuckets/);
+  assert.match(client, /conic-gradient/);
+  assert.match(client, /近14天/);
+  assert.match(client, /近8周/);
+  assert.match(client, /近6个月/);
+  assert.match(client, /避免忙碌却没有推进/);
+  assert.match(route, /questTypeActivity/);
+  assert.match(route, /GROUP BY qc\.completed_date, type/);
+  assert.match(route, /date\(\?, '-370 days'\)/);
+  assert.match(styles, /Daily, weekly and monthly quest structure analysis/);
+  assert.match(styles, /\.quest-mix-ring/);
+  assert.match(styles, /\.quest-mix-stack/);
+  assert.match(styles, /\.quest-analysis-tabs/);
 });
 
 test("supports secure batch selection and deletion of quests", async () => {
