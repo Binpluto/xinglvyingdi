@@ -105,6 +105,27 @@ const dailySystemQuestPools = [
 
 const DAILY_QUEST_REPEAT_WINDOW = 14;
 
+type DailyQuestDifficulty = "easy" | "medium" | "hard";
+type DailyQuestProfile = "calibrating" | "recovery" | "growth" | "breakthrough";
+type DailyQuestHistoryRow = {
+  source: string;
+  title: string;
+  dueDate: string;
+  completed: number;
+};
+
+type DailyQuestCoach = {
+  profile: DailyQuestProfile;
+  label: string;
+  summary: string;
+  goal: string;
+  completionRate: number | null;
+  sampleDays: number;
+  targetDifficulty: DailyQuestDifficulty;
+  targetLabel: string;
+  difficultyRates: Record<DailyQuestDifficulty, number | null>;
+};
+
 type SceneTemplateQuest = readonly [title: string, detail: string, type: "主线" | "支线" | "日常", reward: number];
 
 const sceneTemplates: Record<string, { name: string; quests: readonly SceneTemplateQuest[] }> = {
@@ -224,22 +245,138 @@ function stableQuestOffset(key: string) {
   return hash >>> 0;
 }
 
-function dailyQuestIndex(email: string, clientDate: string, difficulty: string, poolSize: number) {
-  if (poolSize <= DAILY_QUEST_REPEAT_WINDOW) throw new Error("每日系统任务库不足以保证两周内不重复");
-  const dayNumber = Math.floor(Date.parse(`${clientDate}T00:00:00Z`) / 86400000);
-  const userOffset = stableQuestOffset(`${email}:${difficulty}`) % poolSize;
-  return (dayNumber + userOffset) % poolSize;
+function dailyQuestDifficulty(source: string): DailyQuestDifficulty {
+  if (source.endsWith("-hard")) return "hard";
+  if (source.endsWith("-medium")) return "medium";
+  return "easy";
 }
 
-async function ensureDailySystemQuests(email: string, clientDate: string) {
+function dailyQuestCoach(history: DailyQuestHistoryRow[]): DailyQuestCoach {
+  const difficulties: DailyQuestDifficulty[] = ["easy", "medium", "hard"];
+  const counts = Object.fromEntries(difficulties.map((difficulty) => [difficulty, { assigned: 0, completed: 0 }])) as Record<DailyQuestDifficulty, { assigned: number; completed: number }>;
+  for (const row of history) {
+    const difficulty = dailyQuestDifficulty(row.source);
+    counts[difficulty].assigned += 1;
+    counts[difficulty].completed += Number(Boolean(row.completed));
+  }
+  const totalAssigned = difficulties.reduce((total, difficulty) => total + counts[difficulty].assigned, 0);
+  const totalCompleted = difficulties.reduce((total, difficulty) => total + counts[difficulty].completed, 0);
+  const completionRate = totalAssigned ? Math.round(totalCompleted / totalAssigned * 100) : null;
+  const difficultyRates = Object.fromEntries(difficulties.map((difficulty) => {
+    const stat = counts[difficulty];
+    return [difficulty, stat.assigned ? Math.round(stat.completed / stat.assigned * 100) : null];
+  })) as Record<DailyQuestDifficulty, number | null>;
+  const targetDifficulty = difficulties.reduce((weakest, difficulty) => {
+    const rate = difficultyRates[difficulty] ?? 101;
+    const weakestRate = difficultyRates[weakest] ?? 101;
+    return rate < weakestRate ? difficulty : weakest;
+  }, "easy" as DailyQuestDifficulty);
+  const profile: DailyQuestProfile = totalAssigned < 6
+    ? "calibrating"
+    : (completionRate ?? 0) < 45
+      ? "recovery"
+      : (completionRate ?? 0) < 75
+        ? "growth"
+        : "breakthrough";
+  const copy: Record<DailyQuestProfile, Pick<DailyQuestCoach, "label" | "summary" | "goal">> = {
+    calibrating: {
+      label: "探索校准",
+      summary: "样本还不多，今天保持三档任务，系统会从你的选择与完成情况学习。",
+      goal: "先完成最合适的两项，不必追求一次清空。",
+    },
+    recovery: {
+      label: "节奏回稳",
+      summary: "近期完成度偏低，任务会优先选择边界清楚、容易开始的挑战。",
+      goal: "先稳稳完成简单和普通任务，再尝试困难任务。",
+    },
+    growth: {
+      label: "稳步进阶",
+      summary: "你的完成节奏已经稳定，今天会增加一步可检查的进阶要求。",
+      goal: "完成两项基础挑战，并争取拿下困难任务。",
+    },
+    breakthrough: {
+      label: "突破远征",
+      summary: "近期完成度很高，系统会匹配需要成果证明或外部反馈的挑战。",
+      goal: "保持三项全完成，并为困难任务留下可验证成果。",
+    },
+  };
+  const labels: Record<DailyQuestDifficulty, string> = { easy: "简单", medium: "普通", hard: "困难" };
+  return {
+    profile,
+    ...copy[profile],
+    completionRate,
+    sampleDays: new Set(history.map((row) => row.dueDate)).size,
+    targetDifficulty,
+    targetLabel: labels[targetDifficulty],
+    difficultyRates,
+  };
+}
+
+function adaptiveQuestDetail(detail: string, profile: DailyQuestProfile, difficulty: DailyQuestDifficulty) {
+  const additions: Record<DailyQuestProfile, Record<DailyQuestDifficulty, string>> = {
+    calibrating: {
+      easy: "完成基础标准即可，系统将据此继续校准。",
+      medium: "可以拆成两步完成，并记录实际投入。",
+      hard: "先定义最小成果，再决定是否继续挑战。",
+    },
+    recovery: {
+      easy: "回稳要求：先用 5 分钟开始，不追求一次做到完美。",
+      medium: "回稳要求：拆成两个小步骤，至少完成第一步。",
+      hard: "回稳要求：允许分段完成，但必须留下一个可检查成果。",
+    },
+    growth: {
+      easy: "进阶要求：完成后再记录一个让它更容易坚持的方法。",
+      medium: "进阶要求：比基础标准多推进一个可检查步骤。",
+      hard: "进阶要求：留下成果证据，并写明下一次行动。",
+    },
+    breakthrough: {
+      easy: "突破要求：完成后把有效方法整理成一句可复用规则。",
+      medium: "突破要求：提高完成标准，并留下前后对比。",
+      hard: "突破要求：形成可展示成果，并获得一次反馈或数据验证。",
+    },
+  };
+  return `${detail} ${additions[profile][difficulty]}`;
+}
+
+function adaptiveQuestReward(baseReward: number, profile: DailyQuestProfile, difficulty: DailyQuestDifficulty) {
+  const bonuses: Record<DailyQuestProfile, Record<DailyQuestDifficulty, number>> = {
+    calibrating: { easy: 0, medium: 0, hard: 0 },
+    recovery: { easy: 0, medium: 0, hard: 0 },
+    growth: { easy: 0, medium: 5, hard: 10 },
+    breakthrough: { easy: 5, medium: 10, hard: 20 },
+  };
+  return baseReward + bonuses[profile][difficulty];
+}
+
+function dailyQuestIndex(email: string, clientDate: string, difficulty: string, profile: DailyQuestProfile, poolSize: number) {
+  return stableQuestOffset(`${email}:${clientDate}:${difficulty}:${profile}`) % poolSize;
+}
+
+async function ensureDailySystemQuests(email: string, clientDate: string): Promise<DailyQuestCoach> {
+  const historyStart = shiftDate(clientDate, -DAILY_QUEST_REPEAT_WINDOW);
+  const historyRows = await env.DB.prepare(`
+    SELECT source, title, substr(due_at, 1, 10) AS dueDate, completed
+    FROM quests
+    WHERE user_email = ? AND source LIKE 'system-daily-%'
+      AND substr(due_at, 1, 10) >= ? AND substr(due_at, 1, 10) < ?
+    ORDER BY due_at DESC, id DESC
+  `).bind(email, historyStart, clientDate).all<DailyQuestHistoryRow>();
+  const coach = dailyQuestCoach(historyRows.results);
   const existingDay = await env.DB.prepare(`
     SELECT 1 FROM daily_system_quest_days
     WHERE user_email = ? AND quest_date = ?
   `).bind(email, clientDate).first();
-  if (existingDay) return;
+  if (existingDay) return coach;
 
   const questStatements = dailySystemQuestPools.map((pool) => {
-    const template = pool.quests[dailyQuestIndex(email, clientDate, pool.difficulty, pool.quests.length)];
+    const difficulty = pool.difficulty as DailyQuestDifficulty;
+    if (pool.quests.length <= DAILY_QUEST_REPEAT_WINDOW) throw new Error("每日系统任务库不足以保证两周内不重复");
+    const recentlyUsed = new Set(historyRows.results
+      .filter((row) => dailyQuestDifficulty(row.source) === difficulty)
+      .map((row) => row.title));
+    const available = pool.quests.filter((template) => !recentlyUsed.has(template[0]));
+    if (!available.length) throw new Error("每日系统任务库暂时没有可用的不重复任务");
+    const template = available[dailyQuestIndex(email, clientDate, difficulty, coach.profile, available.length)];
     return env.DB.prepare(`
       INSERT OR IGNORE INTO quests
         (user_email, title, detail, type, reward, source, due_at, external_id)
@@ -247,9 +384,9 @@ async function ensureDailySystemQuests(email: string, clientDate: string) {
     `).bind(
       email,
       template[0],
-      template[1],
+      adaptiveQuestDetail(template[1], coach.profile, difficulty),
       pool.type,
-      pool.reward,
+      adaptiveQuestReward(pool.reward, coach.profile, difficulty),
       `system-daily-${pool.difficulty}`,
       clientDate,
       `daily:${clientDate}:${pool.difficulty}`,
@@ -262,6 +399,7 @@ async function ensureDailySystemQuests(email: string, clientDate: string) {
       VALUES (?, ?)
     `).bind(email, clientDate),
   ]);
+  return coach;
 }
 
 type RealmRule = {
@@ -846,7 +984,7 @@ async function weeklyVoyageReport(email: string, clientDate: string) {
 async function dashboard(email: string, requestedClientDate?: string | null) {
   const db = env.DB;
   const clientDate = validClientDate(requestedClientDate);
-  await ensureDailySystemQuests(email, clientDate);
+  const dailyQuestCoach = await ensureDailySystemQuests(email, clientDate);
   await syncRealmUnlock(email);
   const habit = await habitState(email, clientDate, true);
   const weeklyReport = await weeklyVoyageReport(email, clientDate);
@@ -1032,6 +1170,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
     weeklyReport,
     sevenDayChallenge,
+    dailyQuestCoach,
     dailyDeparture: dailyDeparture ?? null,
     habit,
     habitSettings: savedHabitSettings

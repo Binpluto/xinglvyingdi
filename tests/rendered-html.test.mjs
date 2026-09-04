@@ -74,7 +74,7 @@ test("orders today's unfinished quests first and completed quests last", async (
   assert.match(client, /const calendarAgenda = sortQuests/);
 });
 
-test("creates three rotating daily system quests with distinct difficulty rewards", async () => {
+test("adapts three non-repeating daily system quests to recent completion performance", async () => {
   const [client, route, schema] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
@@ -86,15 +86,26 @@ test("creates three rotating daily system quests with distinct difficulty reward
   assert.match(route, /difficulty: "medium"[\s\S]*reward: 45/);
   assert.match(route, /difficulty: "hard"[\s\S]*reward: 80/);
   assert.match(route, /const DAILY_QUEST_REPEAT_WINDOW = 14/);
-  assert.match(route, /poolSize <= DAILY_QUEST_REPEAT_WINDOW/);
-  assert.match(route, /Date\.parse\(`\$\{clientDate\}T00:00:00Z`\) \/ 86400000/);
-  assert.match(route, /stableQuestOffset\(`\$\{email\}:\$\{difficulty\}`\)/);
+  assert.match(route, /pool\.quests\.length <= DAILY_QUEST_REPEAT_WINDOW/);
+  assert.match(route, /source LIKE 'system-daily-%'/);
+  assert.match(route, /substr\(due_at, 1, 10\) >= \? AND substr\(due_at, 1, 10\) < \?/);
+  assert.match(route, /const recentlyUsed = new Set/);
+  assert.match(route, /pool\.quests\.filter\(\(template\) => !recentlyUsed\.has\(template\[0\]\)\)/);
+  assert.match(route, /function dailyQuestCoach/);
+  assert.match(route, /completionRate[\s\S]*< 45[\s\S]*< 75/);
+  assert.match(route, /"calibrating" \| "recovery" \| "growth" \| "breakthrough"/);
+  assert.match(route, /adaptiveQuestDetail/);
+  assert.match(route, /adaptiveQuestReward/);
+  assert.match(route, /stableQuestOffset\(`\$\{email\}:\$\{clientDate\}:\$\{difficulty\}:\$\{profile\}`\)/);
   assert.match(route, /ensureDailySystemQuests\(email, clientDate\)/);
   assert.match(route, /INSERT OR IGNORE INTO daily_system_quest_days/);
   assert.match(schema, /dailySystemQuestDays = sqliteTable\("daily_system_quest_days"/);
-  assert.match(client, /系统 · 简单/);
-  assert.match(client, /系统 · 普通/);
-  assert.match(client, /系统 · 困难/);
+  assert.match(client, /智能 · 简单/);
+  assert.match(client, /智能 · 普通/);
+  assert.match(client, /智能 · 困难/);
+  assert.match(client, /function AdaptiveQuestCoach/);
+  assert.match(client, /根据过去 14 天完成表现匹配/);
+  assert.match(client, /当前重点：提升/);
 });
 
 test("renders today's energy as a red-orange-green score bar", async () => {

@@ -51,6 +51,17 @@ type SevenDayChallenge = {
   days: SevenDayChallengeDay[];
   totalReward: number;
 };
+type DailyQuestCoach = {
+  profile: "calibrating" | "recovery" | "growth" | "breakthrough";
+  label: string;
+  summary: string;
+  goal: string;
+  completionRate: number | null;
+  sampleDays: number;
+  targetDifficulty: "easy" | "medium" | "hard";
+  targetLabel: string;
+  difficultyRates: { easy: number | null; medium: number | null; hard: number | null };
+};
 type GameData = {
   user: { email: string; name: string; inviteCode: string; invitedBy: string | null; xp: number; coins: number; focusMinutes: number; referralCount: number; avatarKey: string; customAvatar: string | null };
   quests: Quest[];
@@ -62,6 +73,7 @@ type GameData = {
   todayFocusMinutes: number;
   weeklyReport: WeeklyReport;
   sevenDayChallenge: SevenDayChallenge;
+  dailyQuestCoach: DailyQuestCoach;
   dailyDeparture: DailyDeparture | null;
   habitSettings: HabitSettings;
   habit: HabitState;
@@ -1258,6 +1270,19 @@ function SceneTemplateLibrary({ act, onClose }: { act: (p: Record<string, unknow
   </section>;
 }
 
+function AdaptiveQuestCoach({ coach }: { coach: DailyQuestCoach }) {
+  const rates = [
+    ["简单", coach.difficultyRates.easy],
+    ["普通", coach.difficultyRates.medium],
+    ["困难", coach.difficultyRates.hard],
+  ] as const;
+  return <section className={`adaptive-quest-coach ${coach.profile}`} aria-label="每日智能任务匹配">
+    <div className="adaptive-coach-mark"><span>✦</span><small>智能航线</small></div>
+    <div className="adaptive-coach-copy"><div><small>根据过去 14 天完成表现匹配</small><h4>{coach.label}</h4></div><p>{coach.summary}</p><b>{coach.goal}</b></div>
+    <div className="adaptive-coach-stats"><div><strong>{coach.completionRate === null ? "校准中" : `${coach.completionRate}%`}</strong><span>{coach.sampleDays ? `近 ${coach.sampleDays} 个活跃日` : "等待首批记录"}</span></div><ul>{rates.map(([label, rate]) => <li key={label} className={label === coach.targetLabel ? "target" : ""}><span>{label}</span><b>{rate === null ? "—" : `${rate}%`}</b></li>)}</ul><small>当前重点：提升{coach.targetLabel}任务完成度</small></div>
+  </section>;
+}
+
 function QuestBoard({ data, done: _allDone, act, compact = false }: { data: GameData; done: number; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; compact?: boolean }) {
   const [filter, setFilter] = useState("全部");
   const [creating, setCreating] = useState(false);
@@ -1403,8 +1428,8 @@ function QuestBoard({ data, done: _allDone, act, compact = false }: { data: Game
   const accessUntilLabel = data.calendarAccess.accessUntil
     ? new Date(data.calendarAccess.accessUntil).toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" })
     : data.calendarAccess.status === "founder" ? "永久有效 · 无需续费" : "连接 Google 日历时开始计时";
-  const sourceLabel = (source: string) => source === "system-daily-easy" ? "系统 · 简单" : source === "system-daily-medium" ? "系统 · 普通" : source === "system-daily-hard" ? "系统 · 困难" : source.startsWith("scene-template-") ? "场景模板" : source.startsWith("google") ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
-  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={sceneTemplatesOpen ? "scene-template-button active" : "scene-template-button"} onClick={() => { setSceneTemplatesOpen((open) => !open); setCalendarOpen(false); }}>◈ 场景模板</button><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => { setCalendarOpen(!calendarOpen); setSceneTemplatesOpen(false); }}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{sceneTemplatesOpen && <SceneTemplateLibrary act={act} onClose={() => setSceneTemplatesOpen(false)} />}{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门 · 实时绑定为付费权益</small><h3>连接并自动同步 Google 日历</h3><p>每天按设备当地时间 08:00、12:00、20:00 检查变化，只同步当天及未来日程；若错过检查时点，会在下次进入星旅营地时补同步。普通任务与手动上传 ICS 永久免费，实时账号绑定需要星历通行证。</p></div><span>◫</span></div><div className={`calendar-membership-status ${data.calendarAccess.active ? "active" : "inactive"}`}><span>{data.calendarAccess.active ? "✦" : "◇"}</span><div><b>{accessLabel}</b><small>{data.calendarAccess.active ? `有效期至 ${accessUntilLabel}` : accessUntilLabel}</small></div>{data.calendarAccess.levelRewardEligible && <button onClick={() => void act({ action: "claimCalendarLevelReward" }, "恭喜获得一年星历通行证")}>领取 Lv.100 一年奖励</button>}</div>{data.premiumProgram.isFreeMember && <section className="premium-free-summary"><span>✦</span><div><small>创始体验账户</small><b>全部付费功能永久免费</b><p>无需购买套餐，当前及后续付费功能都会直接解锁。</p></div></section>}{data.premiumProgram.isAdmin && <PremiumSlotManager program={data.premiumProgram} act={act} />}<div className={data.premiumProgram.isFreeMember ? "calendar-pricing premium-hidden" : "calendar-pricing"}><div className="calendar-pricing-intro"><div><small>星历通行证</small><b>先免费体验 7 天，再决定是否开通</b></div><span>不自动扣费 · 到期前可随时续期</span></div><div className="calendar-plan-grid">{[
+  const sourceLabel = (source: string) => source === "system-daily-easy" ? "智能 · 简单" : source === "system-daily-medium" ? "智能 · 普通" : source === "system-daily-hard" ? "智能 · 困难" : source.startsWith("scene-template-") ? "场景模板" : source.startsWith("google") ? "Google" : source === "outlook" ? "Outlook" : source === "icloud" ? "iCloud" : source === "ics" ? "ICS" : "";
+  return <section className={`quest-card glass-card ${compact ? "" : "full-panel enriched-quests"}`}><div className="card-heading"><div><small>冒险家协会 · 云端委托</small><h3>今日任务</h3></div><div className="completion"><b>{done}/{data.quests.length}</b><span>完成 {Math.round(done / Math.max(data.quests.length, 1) * 100)}%</span></div></div>{!compact && <><AdaptiveQuestCoach coach={data.dailyQuestCoach} /><div className="quest-toolbar"><div>{["全部","主线","日常","支线","日历"].map(v => <button key={v} className={filter === v ? "active" : ""} onClick={() => { setFilter(v); setSelectedQuestIds([]); }}>{v}</button>)}</div><div className="quest-toolbar-actions"><button className={sceneTemplatesOpen ? "scene-template-button active" : "scene-template-button"} onClick={() => { setSceneTemplatesOpen((open) => !open); setCalendarOpen(false); }}>◈ 场景模板</button><button className={selectionMode ? "batch-manage-button active" : "batch-manage-button"} onClick={() => { setSelectionMode((enabled) => !enabled); setSelectedQuestIds([]); setEditingQuestId(null); }}>☑ {selectionMode ? "退出管理" : "批量管理"}</button><button className="calendar-button" onClick={() => { setCalendarOpen(!calendarOpen); setSceneTemplatesOpen(false); }}>▦ 同步日历</button><button className="new-quest-button" onClick={() => setCreating(!creating)}>＋ 发布新委托</button></div></div>{sceneTemplatesOpen && <SceneTemplateLibrary act={act} onClose={() => setSceneTemplatesOpen(false)} />}{selectionMode && <div className="quest-bulk-bar"><button className="bulk-select-all" onClick={toggleSelectVisible}>{allVisibleSelected ? "取消全选" : "全选当前"}</button><span>已选择 <b>{selectedQuestIds.length}</b> 个任务</span><button className="bulk-cancel" onClick={() => { setSelectionMode(false); setSelectedQuestIds([]); }}>取消</button><button className="bulk-delete" disabled={!selectedQuestIds.length || deletingSelected} onClick={() => void deleteSelectedQuests()}>{deletingSelected ? "删除中…" : `删除选中（${selectedQuestIds.length}）`}</button></div>}{calendarOpen && <section className="calendar-portal"><div className="calendar-heading"><div><small>星历传送门 · 实时绑定为付费权益</small><h3>连接并自动同步 Google 日历</h3><p>每天按设备当地时间 08:00、12:00、20:00 检查变化，只同步当天及未来日程；若错过检查时点，会在下次进入星旅营地时补同步。普通任务与手动上传 ICS 永久免费，实时账号绑定需要星历通行证。</p></div><span>◫</span></div><div className={`calendar-membership-status ${data.calendarAccess.active ? "active" : "inactive"}`}><span>{data.calendarAccess.active ? "✦" : "◇"}</span><div><b>{accessLabel}</b><small>{data.calendarAccess.active ? `有效期至 ${accessUntilLabel}` : accessUntilLabel}</small></div>{data.calendarAccess.levelRewardEligible && <button onClick={() => void act({ action: "claimCalendarLevelReward" }, "恭喜获得一年星历通行证")}>领取 Lv.100 一年奖励</button>}</div>{data.premiumProgram.isFreeMember && <section className="premium-free-summary"><span>✦</span><div><small>创始体验账户</small><b>全部付费功能永久免费</b><p>无需购买套餐，当前及后续付费功能都会直接解锁。</p></div></section>}{data.premiumProgram.isAdmin && <PremiumSlotManager program={data.premiumProgram} act={act} />}<div className={data.premiumProgram.isFreeMember ? "calendar-pricing premium-hidden" : "calendar-pricing"}><div className="calendar-pricing-intro"><div><small>星历通行证</small><b>先免费体验 7 天，再决定是否开通</b></div><span>不自动扣费 · 到期前可随时续期</span></div><div className="calendar-plan-grid">{[
     { key: "week", name: "周卡", price: "HK$8", unit: "/ 7天", note: "短期冲刺与旅行安排" },
     { key: "month", name: "月卡", price: "HK$20", unit: "/ 30天", note: "稳定使用 · 每天约 HK$0.67" },
     { key: "year", name: "年卡", price: "HK$160", unit: "/ 365天", note: "推荐 · 比月卡节省约 34%" },
