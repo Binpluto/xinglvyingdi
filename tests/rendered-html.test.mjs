@@ -795,12 +795,14 @@ test("builds a one-page weekly voyage report from durable activity records", asy
 });
 
 test("prompts for a cloud-saved monthly goal and summarizes tasks and focus at month end", async () => {
-  const [client, route, schema, migration, styles] = await Promise.all([
+  const [client, route, schema, migration, styles, proxy, proxyClient] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("drizzle/0016_cooing_black_panther.sql", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+    readFile(new URL("vercel-proxy/monthly-ui.js", root), "utf8"),
   ]);
 
   assert.match(client, /MONTHLY DEPARTURE · 月初定航/);
@@ -818,6 +820,11 @@ test("prompts for a cloud-saved monthly goal and summarizes tasks and focus at m
   assert.match(styles, /Monthly goals and month-end voyage review/);
   assert.match(styles, /\.monthly-voyage-card/);
   assert.match(styles, /\.monthly-goal-page/);
+  assert.match(proxy, /monthly-ui\.js/);
+  assert.match(proxy, /monthly-ui\.css/);
+  assert.match(proxyClient, /const sentinel = "☾ 月度航向 "/);
+  assert.match(proxyClient, /data\.monthlyReview/);
+  assert.match(proxyClient, /action: "createQuest"/);
 });
 
 test("launches six editable scene templates as dated cloud task routes", async () => {
