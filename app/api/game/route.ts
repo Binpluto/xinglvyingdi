@@ -865,6 +865,19 @@ function weekBounds(clientDate: string) {
   return { startDate, endDate: shiftDate(startDate, 6) };
 }
 
+function monthBounds(clientDate: string) {
+  const [year, month, day] = clientDate.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const monthKey = clientDate.slice(0, 7);
+  return {
+    monthKey,
+    startDate: `${monthKey}-01`,
+    endDate: `${monthKey}-${String(lastDay).padStart(2, "0")}`,
+    day,
+    lastDay,
+  };
+}
+
 async function weeklyVoyageReport(email: string, clientDate: string) {
   const { startDate, endDate } = weekBounds(clientDate);
   const db = env.DB;
@@ -981,6 +994,98 @@ async function weeklyVoyageReport(email: string, clientDate: string) {
   };
 }
 
+async function monthlyVoyageReview(email: string, clientDate: string) {
+  const { monthKey, startDate, endDate, day, lastDay } = monthBounds(clientDate);
+  const db = env.DB;
+  const [goal, scheduled, completed, focus, bestDay] = await Promise.all([
+    db.prepare(`
+      SELECT primary_goal AS primaryGoal, task_goal_count AS taskGoalCount,
+        focus_goal_minutes AS focusGoalMinutes, updated_at AS updatedAt
+      FROM monthly_goals WHERE user_email = ? AND month_key = ?
+    `).bind(email, monthKey).first<{
+      primaryGoal: string;
+      taskGoalCount: number;
+      focusGoalMinutes: number;
+      updatedAt: string;
+    }>(),
+    db.prepare(`
+      SELECT COUNT(*) AS count FROM quests
+      WHERE user_email = ?
+        AND substr(COALESCE(due_at, created_at), 1, 10) BETWEEN ? AND ?
+    `).bind(email, startDate, endDate).first<{ count: number }>(),
+    db.prepare(`
+      SELECT qc.quest_title AS title, qc.reward, qc.completed_date AS completedDate,
+        COALESCE(q.type, CASE
+          WHEN qc.source LIKE 'system-daily-hard%' OR qc.source = 'daily-departure' THEN '主线'
+          WHEN qc.source LIKE 'system-daily-medium%' THEN '支线'
+          ELSE '日常' END) AS type
+      FROM quest_completions qc
+      LEFT JOIN quests q ON q.id = qc.quest_id AND q.user_email = qc.user_email
+      WHERE qc.user_email = ? AND qc.completed_date BETWEEN ? AND ?
+      ORDER BY qc.completed_at DESC
+    `).bind(email, startDate, endDate).all<{ title: string; reward: number; completedDate: string; type: string }>(),
+    db.prepare(`
+      SELECT COALESCE(SUM(minutes), 0) AS minutes FROM focus_sessions
+      WHERE user_email = ?
+        AND COALESCE(completed_date, substr(created_at, 1, 10)) BETWEEN ? AND ?
+    `).bind(email, startDate, endDate).first<{ minutes: number }>(),
+    db.prepare(`
+      SELECT completed_date AS date, COUNT(*) AS count
+      FROM quest_completions
+      WHERE user_email = ? AND completed_date BETWEEN ? AND ?
+      GROUP BY completed_date ORDER BY count DESC, completed_date DESC LIMIT 1
+    `).bind(email, startDate, endDate).first<{ date: string; count: number }>(),
+  ]);
+
+  const completedCount = completed.results.length;
+  const scheduledCount = Math.max(Number(scheduled?.count ?? 0), completedCount);
+  const completionRate = scheduledCount ? Math.round(completedCount / scheduledCount * 100) : 0;
+  const focusMinutes = Number(focus?.minutes ?? 0);
+  const typeCounts = new Map<string, number>();
+  for (const item of completed.results) typeCounts.set(item.type, (typeCounts.get(item.type) ?? 0) + 1);
+  const typeBreakdown = ["主线", "支线", "日常"].map((type) => ({ type, count: typeCounts.get(type) ?? 0 }));
+  const taskGoalCount = Number(goal?.taskGoalCount ?? 0);
+  const focusGoalMinutes = Number(goal?.focusGoalMinutes ?? 0);
+  const taskProgress = taskGoalCount ? Math.min(100, Math.round(completedCount / taskGoalCount * 100)) : 0;
+  const focusProgress = focusGoalMinutes ? Math.min(100, Math.round(focusMinutes / focusGoalMinutes * 100)) : 0;
+  const suggestion = !goal
+    ? "先写下一个清晰的月目标，再把它拆成每周可完成的小步。"
+    : completionRate < 50
+      ? "下月减少同时推进的任务，把时间留给一条最重要的主线。"
+      : focusProgress < 70
+        ? "把剩余专注目标拆到每周，并为它安排固定的开始时间。"
+        : taskProgress >= 100 && focusProgress >= 100
+          ? "本月航向稳定。下月可以在保持节奏的基础上增加约 10% 挑战。"
+          : "保留当前节奏，优先完成最接近目标的任务，不必临时增加新计划。";
+
+  return {
+    monthKey,
+    startDate,
+    endDate,
+    isMonthStart: day <= 5,
+    isMonthEnd: day >= lastDay - 2,
+    shouldPromptGoal: day <= 5 && !goal,
+    goal: goal ? {
+      primaryGoal: goal.primaryGoal,
+      taskGoalCount,
+      focusGoalMinutes,
+      updatedAt: goal.updatedAt,
+    } : null,
+    scheduledCount,
+    completedCount,
+    completionRate,
+    focusMinutes,
+    typeBreakdown,
+    taskProgress,
+    focusProgress,
+    bestDay: bestDay ? { date: bestDay.date, count: Number(bestDay.count) } : null,
+    highlight: completed.results[0]
+      ? { title: completed.results[0].title, reward: Number(completed.results[0].reward), date: completed.results[0].completedDate }
+      : null,
+    suggestion,
+  };
+}
+
 async function dashboard(email: string, requestedClientDate?: string | null) {
   const db = env.DB;
   const clientDate = validClientDate(requestedClientDate);
@@ -988,6 +1093,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
   await syncRealmUnlock(email);
   const habit = await habitState(email, clientDate, true);
   const weeklyReport = await weeklyVoyageReport(email, clientDate);
+  const monthlyReview = await monthlyVoyageReview(email, clientDate);
   const sevenDayChallenge = await sevenDayChallengeState(email, clientDate);
   const dailyDeparture = await db.prepare(`
     SELECT departure_date AS departureDate, main_goal AS mainGoal,
@@ -1169,6 +1275,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     focusHistory: focusHistory.results,
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
     weeklyReport,
+    monthlyReview,
     sevenDayChallenge,
     dailyQuestCoach,
     dailyDeparture: dailyDeparture ?? null,
@@ -1239,6 +1346,9 @@ export async function POST(request: Request) {
       avatarKey?: string;
       customAvatar?: string;
       mainGoal?: string;
+      monthKey?: string;
+      primaryGoal?: string;
+      taskGoalCount?: number;
       focusGoalMinutes?: number;
       energyLevel?: string;
       departureReminder?: string | null;
@@ -1251,7 +1361,27 @@ export async function POST(request: Request) {
     };
     const db = env.DB;
 
-    if (body.action === "startDailyDeparture") {
+    if (body.action === "saveMonthlyGoal") {
+      const clientDate = validClientDate(body.clientDate);
+      const monthKey = clientDate.slice(0, 7);
+      if (body.monthKey && body.monthKey !== monthKey) {
+        return Response.json({ error: "只能设置当前月份的目标" }, { status: 400 });
+      }
+      const primaryGoal = (body.primaryGoal ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+      const taskGoalCount = Math.max(1, Math.min(300, Math.round(Number(body.taskGoalCount) || 20)));
+      const focusGoalMinutes = Math.max(30, Math.min(10000, Math.round(Number(body.focusGoalMinutes) || 600)));
+      if (primaryGoal.length < 2) return Response.json({ error: "请用至少 2 个字写下本月目标" }, { status: 400 });
+      await db.prepare(`
+        INSERT INTO monthly_goals
+          (user_email, month_key, primary_goal, task_goal_count, focus_goal_minutes, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_email, month_key) DO UPDATE SET
+          primary_goal = excluded.primary_goal,
+          task_goal_count = excluded.task_goal_count,
+          focus_goal_minutes = excluded.focus_goal_minutes,
+          updated_at = CURRENT_TIMESTAMP
+      `).bind(identity.email, monthKey, primaryGoal, taskGoalCount, focusGoalMinutes).run();
+    } else if (body.action === "startDailyDeparture") {
       const clientDate = validClientDate(body.clientDate);
       const mainGoal = (body.mainGoal ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
       const focusGoalMinutes = Math.max(5, Math.min(240, Math.round(Number(body.focusGoalMinutes) || 25)));

@@ -92,6 +92,18 @@ export const dailyDepartures = sqliteTable("daily_departures", {
   index("daily_departures_activity_idx").on(table.userEmail, table.departureDate),
 ]);
 
+export const monthlyGoals = sqliteTable("monthly_goals", {
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  monthKey: text("month_key").notNull(),
+  primaryGoal: text("primary_goal").notNull(),
+  taskGoalCount: integer("task_goal_count").notNull().default(20),
+  focusGoalMinutes: integer("focus_goal_minutes").notNull().default(600),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.userEmail, table.monthKey] }),
+]);
+
 export const habitSettings = sqliteTable("habit_settings", {
   userEmail: text("user_email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
   departureReminder: text("departure_reminder").default("08:30"),

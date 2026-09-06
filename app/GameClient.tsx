@@ -41,6 +41,25 @@ type WeeklyReport = {
   recommendations: { keep: string; reduce: string; prioritize: string };
   highlight: { title: string; reward: number; date: string } | null;
 };
+type MonthlyReview = {
+  monthKey: string;
+  startDate: string;
+  endDate: string;
+  isMonthStart: boolean;
+  isMonthEnd: boolean;
+  shouldPromptGoal: boolean;
+  goal: { primaryGoal: string; taskGoalCount: number; focusGoalMinutes: number; updatedAt: string } | null;
+  scheduledCount: number;
+  completedCount: number;
+  completionRate: number;
+  focusMinutes: number;
+  typeBreakdown: Array<{ type: string; count: number }>;
+  taskProgress: number;
+  focusProgress: number;
+  bestDay: { date: string; count: number } | null;
+  highlight: { title: string; reward: number; date: string } | null;
+  suggestion: string;
+};
 type SevenDayChallengeDay = { id: number; day: number; title: string; detail: string; reward: number; dueDate: string; done: boolean };
 type SevenDayChallenge = {
   active: boolean;
@@ -72,6 +91,7 @@ type GameData = {
   focusHistory: FocusRecord[];
   todayFocusMinutes: number;
   weeklyReport: WeeklyReport;
+  monthlyReview: MonthlyReview;
   sevenDayChallenge: SevenDayChallenge;
   dailyQuestCoach: DailyQuestCoach;
   dailyDeparture: DailyDeparture | null;
@@ -469,6 +489,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteAccountError, setDeleteAccountError] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [monthGoalDismissed, setMonthGoalDismissed] = useState(false);
   const alertAudioRef = useRef<AudioContext | null>(null);
   const ambientAudioRef = useRef<AmbientSession | null>(null);
 
@@ -704,6 +725,10 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
   }
 
+  if (data.monthlyReview.shouldPromptGoal && !monthGoalDismissed) {
+    return <><MonthlyGoalPage review={data.monthlyReview} name={displayName} onSkip={() => setMonthGoalDismissed(true)} onSave={(payload) => act({ action: "saveMonthlyGoal", monthKey: data.monthlyReview.monthKey, ...payload }, "本月目标已保存到云端")} />{toast && <div className="toast">✦ {toast}</div>}</>;
+  }
+
   if (!data.dailyDeparture) {
     return <><DailyDeparturePage name={displayName} onStart={async (payload) => {
       const started = await act({ action: "startDailyDeparture", ...payload }, "今日航向已保存，主线任务已生成");
@@ -788,6 +813,34 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       </div>}
     </main>
   );
+}
+
+function MonthlyGoalPage({ review, name, onSave, onSkip }: { review: MonthlyReview; name: string; onSave: (payload: { primaryGoal: string; taskGoalCount: number; focusGoalMinutes: number }) => Promise<boolean>; onSkip: () => void }) {
+  const [primaryGoal, setPrimaryGoal] = useState("");
+  const [taskGoalCount, setTaskGoalCount] = useState(20);
+  const [focusGoalMinutes, setFocusGoalMinutes] = useState(600);
+  const [saving, setSaving] = useState(false);
+  const monthLabel = new Date(`${review.startDate}T12:00:00`).toLocaleDateString("zh-CN", { year: "numeric", month: "long" });
+  async function save() {
+    if (primaryGoal.trim().length < 2 || saving) return;
+    setSaving(true);
+    await onSave({ primaryGoal: primaryGoal.trim(), taskGoalCount, focusGoalMinutes });
+    setSaving(false);
+  }
+  return <main className="monthly-goal-page">
+    <div className="monthly-goal-stars" aria-hidden="true">✦　·　✧　·　✦</div>
+    <section className="monthly-goal-card" aria-labelledby="monthly-goal-title">
+      <header><span>◇</span><small>MONTHLY DEPARTURE · 月初定航</small><h1 id="monthly-goal-title">{name}，写下{monthLabel}的航向</h1><p>只设一个最重要的目标，再选择任务与专注目标。之后可以随时在营地调整。</p></header>
+      <label><b>这个月最想完成什么？</b><input autoFocus maxLength={120} value={primaryGoal} onChange={(event) => setPrimaryGoal(event.target.value)} placeholder="例如：完成论文初稿，并提交给导师" /></label>
+      <div className="monthly-goal-options">
+        <fieldset><legend>计划完成任务</legend><div>{[10, 20, 30, 40].map((count) => <button type="button" key={count} className={taskGoalCount === count ? "active" : ""} onClick={() => setTaskGoalCount(count)}><b>{count}</b><span>项</span></button>)}</div></fieldset>
+        <fieldset><legend>计划专注时间</legend><div>{[300, 600, 900, 1200].map((minutes) => <button type="button" key={minutes} className={focusGoalMinutes === minutes ? "active" : ""} onClick={() => setFocusGoalMinutes(minutes)}><b>{minutes / 60}</b><span>小时</span></button>)}</div></fieldset>
+      </div>
+      <button className="monthly-goal-save" disabled={primaryGoal.trim().length < 2 || saving} onClick={() => void save()}>{saving ? "正在保存航向…" : "确认本月航向"}<span>→</span></button>
+      <button className="monthly-goal-skip" type="button" onClick={onSkip}>稍后填写，先进入今日冒险</button>
+      <footer>目标与每月进度将安全保存在你的云端账户</footer>
+    </section>
+  </main>;
 }
 
 function DailyDeparturePage({ name, onStart }: { name: string; onStart: (payload: { mainGoal: string; focusGoalMinutes: number; energyLevel: "low" | "medium" | "high" }) => Promise<boolean> }) {
@@ -931,6 +984,44 @@ function WeeklyVoyageReport({ report }: { report: WeeklyReport }) {
   </section>;
 }
 
+function MonthlyVoyageCard({ review, act }: { review: MonthlyReview; act: (p: Record<string, unknown>, s: string) => Promise<boolean> }) {
+  const [editing, setEditing] = useState(false);
+  const [primaryGoal, setPrimaryGoal] = useState(review.goal?.primaryGoal ?? "");
+  const [taskGoalCount, setTaskGoalCount] = useState(review.goal?.taskGoalCount ?? 20);
+  const [focusGoalMinutes, setFocusGoalMinutes] = useState(review.goal?.focusGoalMinutes ?? 600);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setPrimaryGoal(review.goal?.primaryGoal ?? "");
+    setTaskGoalCount(review.goal?.taskGoalCount ?? 20);
+    setFocusGoalMinutes(review.goal?.focusGoalMinutes ?? 600);
+  }, [review.goal?.primaryGoal, review.goal?.taskGoalCount, review.goal?.focusGoalMinutes]);
+  const monthLabel = new Date(`${review.startDate}T12:00:00`).toLocaleDateString("zh-CN", { month: "long" });
+  const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+
+  async function saveGoal() {
+    if (primaryGoal.trim().length < 2 || saving) return;
+    setSaving(true);
+    const saved = await act({ action: "saveMonthlyGoal", monthKey: review.monthKey, primaryGoal: primaryGoal.trim(), taskGoalCount, focusGoalMinutes }, "本月航向已更新");
+    if (saved) setEditing(false);
+    setSaving(false);
+  }
+
+  return <section className={`monthly-voyage-card${review.isMonthEnd ? " month-end" : ""}`} aria-labelledby="monthly-voyage-title">
+    <header className="monthly-voyage-head"><div><small>{review.isMonthEnd ? "MONTH-END REVIEW · 月末总结" : "MONTHLY VOYAGE · 本月航向"}</small><h2 id="monthly-voyage-title">{monthLabel}{review.isMonthEnd ? "航行总结" : "进度"}</h2><p>{review.isMonthEnd ? "本月的任务与专注记录已经汇成一页航海日志。" : review.goal?.primaryGoal ?? "先设定本月最重要的一件事，让每周行动朝同一方向累积。"}</p></div><span aria-hidden="true">☾</span></header>
+    {editing || !review.goal ? <div className="monthly-goal-editor">
+      <label><span>本月最重要的目标</span><input maxLength={120} value={primaryGoal} onChange={(event) => setPrimaryGoal(event.target.value)} placeholder="例如：完成论文初稿" /></label>
+      <label><span>任务目标</span><input type="number" min={1} max={300} value={taskGoalCount} onChange={(event) => setTaskGoalCount(Math.max(1, Math.min(300, Number(event.target.value) || 1)))} /><em>项</em></label>
+      <label><span>专注目标</span><input type="number" min={30} max={10000} step={30} value={focusGoalMinutes} onChange={(event) => setFocusGoalMinutes(Math.max(30, Math.min(10000, Number(event.target.value) || 30)))} /><em>分钟</em></label>
+      <div><button type="button" disabled={saving || primaryGoal.trim().length < 2} onClick={() => void saveGoal()}>{saving ? "保存中…" : "保存月目标"}</button>{review.goal && <button className="secondary" type="button" onClick={() => setEditing(false)}>取消</button>}</div>
+    </div> : <>
+      <div className="monthly-goal-banner"><div><small>本月主目标</small><b>{review.goal.primaryGoal}</b></div><button type="button" onClick={() => setEditing(true)}>调整目标</button></div>
+      <div className="monthly-summary-stats"><div><strong>{review.completedCount}</strong><span>完成任务</span><small>共安排 {review.scheduledCount} 项</small></div><div><strong>{review.completionRate}%</strong><span>任务完成率</span><small>{review.taskProgress}% 月目标</small></div><div><strong>{Math.round(review.focusMinutes / 6) / 10}</strong><span>专注小时</span><small>{review.focusProgress}% 月目标</small></div><div><strong>{review.bestDay?.count ?? 0}</strong><span>单日最佳</span><small>{review.bestDay ? dateLabel(review.bestDay.date) : "等待首次完成"}</small></div></div>
+      <div className="monthly-progress-grid"><div><header><span>任务目标</span><b>{review.completedCount} / {review.goal.taskGoalCount} 项</b></header><div><i style={{ width: `${review.taskProgress}%` }} /></div></div><div><header><span>专注目标</span><b>{review.focusMinutes} / {review.goal.focusGoalMinutes} 分钟</b></header><div><i style={{ width: `${review.focusProgress}%` }} /></div></div></div>
+      <div className="monthly-bottom"><div className="monthly-type-breakdown">{review.typeBreakdown.map((item) => <span key={item.type}><i className={`type-${item.type}`} /><b>{item.type}</b><em>{item.count} 项</em></span>)}</div><div className="monthly-advice"><small>{review.isMonthEnd ? "下月建议" : "本月建议"}</small><p>{review.suggestion}</p>{review.highlight && <span>本月闪光：{review.highlight.title}</span>}</div></div>
+    </>}
+  </section>;
+}
+
 const sevenDayPreview = [
   ["定目标", "点亮第一颗主星"],
   ["专注", "完成首次专注"],
@@ -995,7 +1086,7 @@ function Camp({ data, done, setTab, act, realm }: { data: GameData; done: number
     <aside className="profile-card glass-card"><div className="card-heading"><div><small>旅行者档案</small><h3>云端旅程</h3></div><span className="sync-orb">✓</span></div><div className="cloud-stats"><div><b>{data.user.focusMinutes}</b><span>累计专注 / 分钟</span></div><div><b>{data.user.referralCount}</b><span>成功邀请 / 人</span></div><div><b>{data.team?.member_count ?? 0}</b><span>同行伙伴 / 人</span></div></div><blockquote>“因相遇而出发，因同行而抵达。”</blockquote></aside>
     <QuestBoard data={data} done={done} act={act} compact />
     <aside className="focus-card glass-card mini-focus"><div className="card-heading"><div><small>共同旅程</small><h3>{data.team?.name ?? "尚未加入小组"}</h3></div><span className="moon">♙</span></div>{data.team ? <><div className="team-power"><small>小组当前实力</small><strong>{data.team.members.reduce((n, m) => n + m.strength, 0).toLocaleString()}</strong><span>世界排名将实时累计每位成员的经验与专注时间</span></div><button className="wide-button" onClick={() => setTab("小组")}>查看小组营地</button></> : <div className="empty-team"><span>♙</span><p>创建或加入最多 5 人的小组，和伙伴共同成长。</p><button className="wide-button" onClick={() => setTab("小组")}>寻找同行者</button></div>}</aside>
-  </div><SevenDayChallengeCard challenge={data.sevenDayChallenge} act={act} setTab={setTab} /><WeeklyVoyageReport report={data.weeklyReport} /><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
+  </div><SevenDayChallengeCard challenge={data.sevenDayChallenge} act={act} setTab={setTab} /><MonthlyVoyageCard review={data.monthlyReview} act={act} /><WeeklyVoyageReport report={data.weeklyReport} /><HabitHub data={data} act={act} /><div className="camp-bottom-grid">
     <section className="glass-card camp-agenda"><div className="card-heading"><div><small>今日旅程</small><h3>冒险日程</h3></div><button className="text-button" onClick={() => setTab("任务")}>管理任务 →</button></div>{agenda.map((item, index) => <div className="agenda-line" key={`${item.title}-${index}`}><i /><span>{item.time}</span><div><b>{item.title}</b><small>{item.detail}</small></div><em>{item.state}</em></div>)}</section>
     <section className={`glass-card camp-weather energy-${energy.tone}`}>
       <div className="card-heading"><div><small>营地天气 · 实时变化</small><h3>今日能量</h3></div><span className="weather-symbol">{energy.icon}</span></div>

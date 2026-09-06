@@ -794,6 +794,32 @@ test("builds a one-page weekly voyage report from durable activity records", asy
   assert.match(styles, /\.weekly-recommendations/);
 });
 
+test("prompts for a cloud-saved monthly goal and summarizes tasks and focus at month end", async () => {
+  const [client, route, schema, migration, styles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0016_cooing_black_panther.sql", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /MONTHLY DEPARTURE · 月初定航/);
+  assert.match(client, /这个月最想完成什么/);
+  assert.match(client, /MONTH-END REVIEW · 月末总结/);
+  assert.match(client, /任务完成率/);
+  assert.match(client, /专注小时/);
+  assert.match(client, /本月闪光/);
+  assert.match(route, /function monthBounds/);
+  assert.match(route, /async function monthlyVoyageReview/);
+  assert.match(route, /body\.action === "saveMonthlyGoal"/);
+  assert.match(route, /COALESCE\(completed_date, substr\(created_at, 1, 10\)\)/);
+  assert.match(schema, /monthlyGoals = sqliteTable\("monthly_goals"/);
+  assert.match(migration, /CREATE TABLE `monthly_goals`/);
+  assert.match(styles, /Monthly goals and month-end voyage review/);
+  assert.match(styles, /\.monthly-voyage-card/);
+  assert.match(styles, /\.monthly-goal-page/);
+});
+
 test("launches six editable scene templates as dated cloud task routes", async () => {
   const [client, route, styles] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
