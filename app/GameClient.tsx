@@ -490,6 +490,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   const [deleteAccountError, setDeleteAccountError] = useState("");
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [monthGoalDismissed, setMonthGoalDismissed] = useState(false);
+  const [showSundaySummary, setShowSundaySummary] = useState(false);
   const alertAudioRef = useRef<AudioContext | null>(null);
   const ambientAudioRef = useRef<AmbientSession | null>(null);
 
@@ -554,6 +555,12 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       window.localStorage.setItem(storageKey, String(reachedMilestone));
     }
   }, [data?.user.xp, identity.email]);
+  useEffect(() => {
+    if (!data || new Date().getDay() !== 0) return;
+    const today = localDateKey(new Date());
+    const storageKey = `starcamp-sunday-summary:${identity.email}:${today}`;
+    if (!window.localStorage.getItem(storageKey)) setShowSundaySummary(true);
+  }, [data, identity.email]);
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("calendar");
     if (!status) return;
@@ -721,6 +728,11 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   const activeMilestoneCopy = levelMilestone ? milestoneCopy(levelMilestone) : null;
   const isGrandMilestone = Boolean(levelMilestone && levelMilestone % 100 === 0);
 
+  function closeSundaySummary() {
+    window.localStorage.setItem(`starcamp-sunday-summary:${identity.email}:${localDateKey(new Date())}`, "seen");
+    setShowSundaySummary(false);
+  }
+
   if (!data) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
   }
@@ -792,6 +804,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       {tab === "营地" && !data.user.invitedBy && <div className="invite-banner"><div><b>来自好友的星光？</b><span>填写邀请码，你与邀请人都能获得奖励</span></div><input value={inviteInput} onChange={(e) => setInviteInput(e.target.value)} placeholder="输入好友邀请码" /><button onClick={() => void redeemFriendInvite()}>领取奖励</button></div>}
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
+      {showSundaySummary && <SundaySummaryDialog report={data.weeklyReport} onClose={closeSundaySummary} onOpenFull={() => { closeSundaySummary(); setTab("营地"); window.setTimeout(() => document.getElementById("weekly-report-title")?.scrollIntoView({ behavior: "smooth" }), 80); }} />}
       {showAccountDeletion && <div className="account-delete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingAccount) setShowAccountDeletion(false); }}><section className="account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="account-delete-title"><button aria-label="关闭删除账号窗口" onClick={() => setShowAccountDeletion(false)} disabled={deletingAccount}>×</button><span>◇</span><small>ACCOUNT &amp; CLOUD DATA</small><h2 id="account-delete-title">永久删除账号</h2><p>任务、专注记录、队伍关系、世界进度、日历连接和权益记录将从云端永久删除，且无法恢复。</p><label><b>输入当前密码确认</b><input type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="当前账号密码" /></label>{deleteAccountError && <div role="alert">{deleteAccountError}</div>}<footer><button onClick={() => { setShowAccountDeletion(false); setDeletePassword(""); setDeleteAccountError(""); }} disabled={deletingAccount}>取消</button><button className="danger" onClick={() => void permanentlyDeleteAccount()} disabled={deletingAccount || !deletePassword}>{deletingAccount ? "正在删除…" : "永久删除账号"}</button></footer></section></div>}
       {levelMilestone && activeMilestoneCopy && <div className={`level-milestone-backdrop ${isGrandMilestone ? "milestone-grand" : "milestone-small"}`}>
         <div className="milestone-stars" aria-hidden="true">{Array.from({ length: isGrandMilestone ? 18 : 8 }, (_, index) => <i key={index}>✦</i>)}</div>
@@ -813,6 +826,21 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       </div>}
     </main>
   );
+}
+
+function SundaySummaryDialog({ report, onClose, onOpenFull }: { report: WeeklyReport; onClose: () => void; onOpenFull: () => void }) {
+  const topType = [...report.typeBreakdown].sort((left, right) => right.count - left.count)[0];
+  const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+  return <div className="sunday-summary-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
+    <section className="sunday-summary-dialog" role="dialog" aria-modal="true" aria-labelledby="sunday-summary-title">
+      <button className="sunday-summary-close" aria-label="关闭本周小结" onClick={onClose}>×</button>
+      <header><span>✦</span><small>SUNDAY CAMPFIRE · 周日小结</small><h2 id="sunday-summary-title">这一周，你留下了这些星光</h2><p>{dateLabel(report.startDate)} — {dateLabel(report.endDate)}</p></header>
+      <div className="sunday-summary-stats"><div><strong>{report.completedCount}</strong><span>完成任务</span></div><div><strong>{report.actualFocusMinutes}</strong><span>专注分钟</span></div><div><strong>{topType?.type ?? "待启程"}</strong><span>最常完成</span></div></div>
+      <article className="sunday-summary-highlight"><span>◇</span><div><small>本周闪光</small><b>{report.highlight?.title ?? "你仍在为自己的航向积蓄力量"}</b></div></article>
+      <article className="sunday-summary-next"><small>下周只记住这一件事</small><p>{report.recommendations.prioritize}</p></article>
+      <footer><button type="button" className="secondary" onClick={onOpenFull}>查看完整周报</button><button type="button" onClick={onClose}>收下小结 · 继续出发</button></footer>
+    </section>
+  </div>;
 }
 
 function MonthlyGoalPage({ review, name, onSave, onSkip }: { review: MonthlyReview; name: string; onSave: (payload: { primaryGoal: string; taskGoalCount: number; focusGoalMinutes: number }) => Promise<boolean>; onSkip: () => void }) {

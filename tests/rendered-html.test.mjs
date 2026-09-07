@@ -770,10 +770,12 @@ test("adds a focused daily departure, user-timed reminders and gentle streak rew
 });
 
 test("builds a one-page weekly voyage report from durable activity records", async () => {
-  const [client, route, styles] = await Promise.all([
+  const [client, route, styles, proxy, proxyClient] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/api/game/route.ts", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+    readFile(new URL("vercel-proxy/weekly-summary-ui.js", root), "utf8"),
   ]);
 
   assert.match(client, /WEEKLY VOYAGE REPORT · 每周航海报告/);
@@ -792,6 +794,14 @@ test("builds a one-page weekly voyage report from durable activity records", asy
   assert.match(styles, /One-page weekly voyage report/);
   assert.match(styles, /\.weekly-voyage-report/);
   assert.match(styles, /\.weekly-recommendations/);
+  assert.match(client, /SUNDAY CAMPFIRE · 周日小结/);
+  assert.match(client, /starcamp-sunday-summary/);
+  assert.match(client, /下周只记住这一件事/);
+  assert.match(styles, /\.sunday-summary-dialog/);
+  assert.match(proxy, /weekly-summary-ui\.js/);
+  assert.match(proxy, /weekly-summary-ui\.css/);
+  assert.match(proxyClient, /new Date\(\)\.getDay\(\) !== 0/);
+  assert.match(proxyClient, /data\.weeklyReport/);
 });
 
 test("prompts for a cloud-saved monthly goal and summarizes tasks and focus at month end", async () => {
