@@ -1,4 +1,4 @@
-const CACHE_NAME = "starcamp-shell-v1";
+const CACHE_NAME = "starcamp-shell-v2";
 const APP_SHELL = [
   "/manifest.webmanifest",
   "/offline.html",
@@ -41,5 +41,17 @@ self.addEventListener("fetch", (event) => {
       }
       return response;
     }))
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || "/";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+      if (existing) return existing.focus().then(() => existing.navigate(target));
+      return clients.openWindow(target);
+    })
   );
 });

@@ -230,6 +230,32 @@ test("ships as an installable mobile web app without caching private API data", 
   assert.match(proxyHandler, /pwa-register\.js/);
 });
 
+test("reminds mobile travelers at 10:00 in their local device time", async () => {
+  const [client, styles, worker, proxyHandler, proxyClient, proxyWorker] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("public/sw.js", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+    readFile(new URL("vercel-proxy/mobile-reminder-ui.js", root), "utf8"),
+    readFile(new URL("vercel-proxy/sw.js", root), "utf8"),
+  ]);
+
+  assert.match(client, /LOCAL 10:00 · 每日启程/);
+  assert.match(client, /starcamp-mobile-10am/);
+  assert.match(client, /minuteNow < 600/);
+  assert.match(client, /matchMedia\("\(max-width: 980px\), \(pointer: coarse\)"\)/);
+  assert.match(client, /Notification\.requestPermission/);
+  assert.match(client, /registration\.showNotification\("星旅营地 · 10点启程"/);
+  assert.match(styles, /\.mobile-start-reminder/);
+  assert.match(worker, /notificationclick/);
+  assert.match(worker, /clients\.openWindow/);
+  assert.match(proxyHandler, /mobile-reminder-ui\.js/);
+  assert.match(proxyHandler, /mobile-reminder-ui\.css/);
+  assert.match(proxyClient, /isMobileDevice/);
+  assert.match(proxyClient, /data\.dailyDeparture/);
+  assert.match(proxyWorker, /notificationclick/);
+});
+
 test("supports review-compliant in-app account and cloud data deletion", async () => {
   const [authHelper, authRoute, authClient, gameClient, privacy] = await Promise.all([
     readFile(new URL("app/app-auth.ts", root), "utf8"),

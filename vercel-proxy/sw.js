@@ -1,4 +1,4 @@
-const CACHE_NAME = "starcamp-shell-v1";
+const CACHE_NAME = "starcamp-shell-v2";
 const APP_SHELL = ["/manifest.webmanifest", "/offline.html", "/app-icon-192.png", "/app-icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
@@ -22,4 +22,14 @@ self.addEventListener("fetch", (event) => {
     if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
     return response;
   })));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || "/";
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+    const existing = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (existing) return existing.focus().then(() => existing.navigate(target));
+    return self.clients.openWindow(target);
+  }));
 });

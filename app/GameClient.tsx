@@ -491,6 +491,8 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [monthGoalDismissed, setMonthGoalDismissed] = useState(false);
   const [showSundaySummary, setShowSundaySummary] = useState(false);
+  const [showMobileStartReminder, setShowMobileStartReminder] = useState(false);
+  const [mobileNotificationPermission, setMobileNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
   const alertAudioRef = useRef<AudioContext | null>(null);
   const ambientAudioRef = useRef<AmbientSession | null>(null);
 
@@ -561,6 +563,43 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
     const storageKey = `starcamp-sunday-summary:${identity.email}:${today}`;
     if (!window.localStorage.getItem(storageKey)) setShowSundaySummary(true);
   }, [data, identity.email]);
+  useEffect(() => {
+    setMobileNotificationPermission("Notification" in window ? Notification.permission : "unsupported");
+  }, []);
+  useEffect(() => {
+    if (!data || data.dailyDeparture || data.monthlyReview.shouldPromptGoal) return;
+    const mobile = window.matchMedia("(max-width: 980px), (pointer: coarse)").matches;
+    if (!mobile) return;
+    let timeout = 0;
+    const checkTenOClock = async () => {
+      const now = new Date();
+      const minuteNow = now.getHours() * 60 + now.getMinutes();
+      if (minuteNow < 600) {
+        timeout = window.setTimeout(() => void checkTenOClock(), Math.max(1000, (600 - minuteNow) * 60000 - now.getSeconds() * 1000));
+        return;
+      }
+      const storageKey = `starcamp-mobile-10am:${identity.email}:${localDateKey(now)}`;
+      if (window.localStorage.getItem(storageKey)) return;
+      if (document.visibilityState === "hidden" && "Notification" in window && Notification.permission === "granted") {
+        try {
+          const registration = await navigator.serviceWorker?.ready;
+          const options = { body: "用 20 秒选定今日主线，让今天的第一步真正开始。", icon: "/app-icon-192.png", badge: "/app-icon-192.png", tag: `starcamp-10am-${localDateKey(now)}`, data: { url: "/" } };
+          if (registration) await registration.showNotification("星旅营地 · 10点启程", options);
+          else new Notification("星旅营地 · 10点启程", options);
+          window.localStorage.setItem(storageKey, "notified");
+        } catch { setShowMobileStartReminder(true); }
+      } else {
+        setShowMobileStartReminder(true);
+      }
+    };
+    const handleVisibility = () => { if (document.visibilityState === "visible") void checkTenOClock(); };
+    void checkTenOClock();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [data?.dailyDeparture, data?.monthlyReview.shouldPromptGoal, identity.email]);
   useEffect(() => {
     const status = new URLSearchParams(window.location.search).get("calendar");
     if (!status) return;
@@ -733,6 +772,18 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
     setShowSundaySummary(false);
   }
 
+  function closeMobileStartReminder() {
+    window.localStorage.setItem(`starcamp-mobile-10am:${identity.email}:${localDateKey(new Date())}`, "seen");
+    setShowMobileStartReminder(false);
+  }
+
+  async function enableMobileNotifications() {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setMobileNotificationPermission(permission);
+    if (permission === "granted") notify("手机系统通知已开启，星旅营地会在可用时提醒你启程");
+  }
+
   if (!data) {
     return <main className="loading-world"><div className="loading-seal">✧</div><p>正在连接星旅世界…</p></main>;
   }
@@ -750,7 +801,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
         setTab("任务");
       }
       return started;
-    }} />{toast && <div className="toast">✦ {toast}</div>}</>;
+    }} />{showMobileStartReminder && <MobileStartReminder permission={mobileNotificationPermission} onEnableNotifications={enableMobileNotifications} onStart={closeMobileStartReminder} onDismiss={closeMobileStartReminder} />}{toast && <div className="toast">✦ {toast}</div>}</>;
   }
 
   return (
@@ -805,6 +856,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       {toast && <div className="toast">✦ {toast}</div>}
       {showFocusComplete && <div className="focus-complete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setShowFocusComplete(false); }}><section className="focus-complete-dialog" role="dialog" aria-modal="true" aria-labelledby="focus-complete-title"><button className="focus-complete-close" aria-label="关闭专注完成提示" onClick={() => setShowFocusComplete(false)}>×</button><span className="focus-complete-seal">✦</span><small>FOCUS COMPLETE</small><h2 id="focus-complete-title">专注秘境完成</h2><p>你已完成 {focusMinutes} 分钟专注，历练记录与小组实力已同步到云端。</p><div><button onClick={() => { setShowFocusComplete(false); setTab("营地"); }}>返回营地</button><button className="focus-again" onClick={() => { setShowFocusComplete(false); setTimer(focusMinutes * 60); setTab("专注"); }}>再来一次</button></div></section></div>}
       {showSundaySummary && <SundaySummaryDialog report={data.weeklyReport} onClose={closeSundaySummary} onOpenFull={() => { closeSundaySummary(); setTab("营地"); window.setTimeout(() => document.getElementById("weekly-report-title")?.scrollIntoView({ behavior: "smooth" }), 80); }} />}
+      {showMobileStartReminder && !showSundaySummary && <MobileStartReminder permission={mobileNotificationPermission} onEnableNotifications={enableMobileNotifications} onStart={() => { closeMobileStartReminder(); setTab("任务"); }} onDismiss={closeMobileStartReminder} />}
       {showAccountDeletion && <div className="account-delete-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !deletingAccount) setShowAccountDeletion(false); }}><section className="account-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="account-delete-title"><button aria-label="关闭删除账号窗口" onClick={() => setShowAccountDeletion(false)} disabled={deletingAccount}>×</button><span>◇</span><small>ACCOUNT &amp; CLOUD DATA</small><h2 id="account-delete-title">永久删除账号</h2><p>任务、专注记录、队伍关系、世界进度、日历连接和权益记录将从云端永久删除，且无法恢复。</p><label><b>输入当前密码确认</b><input type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} placeholder="当前账号密码" /></label>{deleteAccountError && <div role="alert">{deleteAccountError}</div>}<footer><button onClick={() => { setShowAccountDeletion(false); setDeletePassword(""); setDeleteAccountError(""); }} disabled={deletingAccount}>取消</button><button className="danger" onClick={() => void permanentlyDeleteAccount()} disabled={deletingAccount || !deletePassword}>{deletingAccount ? "正在删除…" : "永久删除账号"}</button></footer></section></div>}
       {levelMilestone && activeMilestoneCopy && <div className={`level-milestone-backdrop ${isGrandMilestone ? "milestone-grand" : "milestone-small"}`}>
         <div className="milestone-stars" aria-hidden="true">{Array.from({ length: isGrandMilestone ? 18 : 8 }, (_, index) => <i key={index}>✦</i>)}</div>
@@ -826,6 +878,22 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       </div>}
     </main>
   );
+}
+
+function MobileStartReminder({ permission, onEnableNotifications, onStart, onDismiss }: { permission: NotificationPermission | "unsupported"; onEnableNotifications: () => Promise<void>; onStart: () => void; onDismiss: () => void }) {
+  return <div className="mobile-start-reminder-backdrop">
+    <section className="mobile-start-reminder" role="dialog" aria-modal="true" aria-labelledby="mobile-start-reminder-title">
+      <button className="mobile-start-reminder-close" aria-label="关闭今日启程提醒" onClick={onDismiss}>×</button>
+      <div className="mobile-reminder-sun" aria-hidden="true"><span>☼</span><i /></div>
+      <small>LOCAL 10:00 · 每日启程</small>
+      <h2 id="mobile-start-reminder-title">早上好，今天的冒险可以开始了</h2>
+      <p>用 20 秒选定今日主线，再完成一个最小行动。星光会从第一步开始累积。</p>
+      <div className="mobile-reminder-actions"><button className="secondary" type="button" onClick={onDismiss}>今天不再提醒</button><button type="button" onClick={onStart}>开始今日冒险 →</button></div>
+      {permission === "default" && <button className="mobile-reminder-permission" type="button" onClick={() => void onEnableNotifications()}>允许手机系统通知</button>}
+      {permission === "denied" && <small className="mobile-reminder-note">系统通知已被关闭；仍会在你打开星旅营地时显示站内提醒。</small>}
+      {permission === "unsupported" && <small className="mobile-reminder-note">当前浏览器不支持系统通知；站内提醒仍会正常显示。</small>}
+    </section>
+  </div>;
 }
 
 function SundaySummaryDialog({ report, onClose, onOpenFull }: { report: WeeklyReport; onClose: () => void; onOpenFull: () => void }) {
