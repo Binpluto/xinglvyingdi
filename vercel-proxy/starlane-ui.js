@@ -1,22 +1,18 @@
 import { availableTasks, completedOnDate, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=11';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createVerticalTimeline} from './starlane-timeline.mjs?v=8';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=12';
 import {sequenceBlocks} from './sequence-records.mjs?v=10';
 import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
 
+import {sequenceCategories,createCategoryManager} from './sequence-categories.mjs?v=12';
+
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
-  const CATEGORY_PREFIX = "▥分类|";
   const types = ["主线", "支线", "日常"];
   const colors = [
     ["jade", "翡翠", "#3f8d7a"], ["gold", "星金", "#d09c3f"], ["azure", "晴蓝", "#4e86bd"], ["coral", "珊瑚", "#d97862"],
     ["violet", "暮紫", "#8068b2"], ["rose", "蔷薇", "#bd6588"], ["amber", "琥珀", "#bf7637"], ["slate", "夜灰", "#607680"],
   ];
-  const defaults = {
-    主线: [["核心项目", "gold"], ["学习攻关", "amber"], ["关键交付", "coral"]],
-    支线: [["创作", "violet"], ["运动", "azure"], ["关系", "rose"]],
-    日常: [["生活整理", "jade"], ["通勤", "slate"], ["休息", "azure"]],
-  };
   let data = null;
   let pageOpen = false;
   let selectedDate = localDateKey(new Date());
@@ -82,15 +78,7 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
   function parseBlocks() {
     return sequenceBlocks(data?.quests||[]);
   }
-  function parseCategories(type) {
-    const custom = (data?.quests || []).filter((quest) => String(quest.title).startsWith(`${CATEGORY_PREFIX}${type}|`)).map((quest) => {
-      const name = String(quest.title).split("|").slice(2).join("|");
-      let color = "jade";
-      try { color = JSON.parse(quest.detail || "{}").k || color; } catch {}
-      return { id: quest.id, name, color, custom: true };
-    });
-    return [...defaults[type].map(([name, color]) => ({ name, color, custom: false })), ...custom];
-  }
+  function parseCategories(type) {return sequenceCategories(data?.quests||[],type);}
   function payloadFor(block) {
     return JSON.stringify({ t: block.title.trim().slice(0, 24), m: block.type, c: block.category.slice(0, 12), k: block.color, n: block.note.trim().slice(0, 24) });
   }
@@ -211,14 +199,14 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
     toolbar.append(views);
     const steps = el("div"); steps.append(el("span", "", "时间刻度"));
     [10, 15, 30].forEach((step) => { const button = el("button", granularity === step ? "active" : "", `${step} min`); button.onclick = () => { granularity = step; renderPage(); }; steps.append(button); });
-    const manual = el("button", "manual", "＋ 手动填写"); manual.onclick = () => openEditor({ date: selectedDate, start: 540, end: 600, title: "", type: "主线", category: "核心项目", color: "gold", note: "" });
+    const manual = el("button", "manual", "＋ 手动填写"); manual.onclick = () => openEditor({ date: selectedDate, start: 540, end: 600, title: "", type: "主线", category: parseCategories("主线")[0]?.name||"未分类", color: "gold", note: "" });
     toolbar.append(steps, manual);
     const exportButton=el('button','',hasPaidTools(data)?'导出日程':'导出日程 · 付费'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel=el('div','flat-timeline-panel');
     const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[],selectedDate).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
     const timeline=createVerticalTimeline({date:selectedDate,step:granularity,blocks,mode:viewMode,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},
-          onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:'核心项目',color:'gold',note:''});},
+          onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:parseCategories('主线')[0]?.name||'未分类',color:'gold',note:''});},
           onEdit:block=>openEditor({...block}),
           onMove:async block=>{try{await saveBlock(block);}catch(error){notify(error.message);renderPage();}},
           onTask
@@ -236,8 +224,8 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
   function placeTask(task, minute, day = selectedDate) {
     selectedTask = null;
     const type = types.includes(task.type) ? task.type : '日常';
-    const first = defaults[type][0];
-    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: defaultTaskColor(type),colorCustom:false, note: '',questId:task.id });
+    const first = parseCategories(type)[0];
+    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first?.name||"未分类", color: defaultTaskColor(type),colorCustom:false, note: '',questId:task.id });
     document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；保存后对应任务自动完成。'));
   }
   function renderTaskTray() {
@@ -271,22 +259,7 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
     });
     tray.append(list); return tray;
   }
-  function renderCategories() {
-    const panel = el("aside", "starlane-compat-categories");
-    const heading = el("header"); heading.append(el("div", "", "时间分类"), el("span", "", "8 色")); panel.append(heading);
-    types.forEach((type) => {
-      const group = el("section"); group.append(el("b", "", type)); const list = el("div");
-      parseCategories(type).forEach((category) => { const chip = el("span", `color-${category.color}`); chip.append(el("i"), document.createTextNode(category.name)); if (category.custom) { const remove = el("button", "", "×"); remove.onclick = async () => { try { await api({ action: "deleteQuest", questId: category.id }); renderPage(); } catch (error) { notify(error.message); } }; chip.append(remove); } list.append(chip); });
-      group.append(list); panel.append(group);
-    });
-    const creator = el("div", "starlane-compat-category-create");
-    const typeSelect = el("select"); types.forEach((type) => { const option = el("option", "", type); typeSelect.append(option); });
-    const name = el("input"); name.placeholder = "新增细分分类"; name.maxLength = 12;
-    const palette = el("div", "starlane-compat-mini-colors"); let chosen = "gold";
-    colors.forEach(([key, label]) => { const button = el("button", `${key === chosen ? "active " : ""}color-${key}`); button.title = label; button.onclick = () => { chosen = key; palette.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); }; palette.append(button); });
-    const save = el("button", "save", "保存分类"); save.onclick = async () => { if (name.value.trim().length < 2) return; try { await api({ action: "createQuest", title: `${CATEGORY_PREFIX}${typeSelect.value}|${name.value.trim().slice(0, 12)}`, detail: JSON.stringify({ k: chosen }), type: typeSelect.value }); renderPage(); } catch (error) { notify(error.message); } };
-    creator.append(typeSelect, name, palette, save); panel.append(creator); return panel;
-  }
+  function renderCategories() {return createCategoryManager({getCategories:parseCategories,mutate:api,onSaved:()=>{renderPage();const details=document.querySelector('.starlane-task-sidebar .flat-sidebar-details');if(details)details.open=true;notify('细分分类已保存');},notify});}
   function openExportPanel() {
     if(!hasPaidTools(data)){notify(PREMIUM_MESSAGE);return;}
     const backdrop=el('div','starlane-compat-editor-backdrop'), panel=el('section','starlane-compat-editor');
@@ -321,7 +294,7 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
     const typeRow = el("div", "starlane-compat-type-row");
     const category = el("select"), colorRow = el("div", "starlane-compat-color-row");
     let currentType = block.type, colorCustom=block.colorCustom===true, currentColor = colorCustom?block.color:defaultTaskColor(block.type);
-    const fillCategories = () => { category.replaceChildren(); parseCategories(currentType).forEach((item) => { const option = el("option", "", item.name); option.value = item.name; category.append(option); }); category.value = block.category; if (!category.value) category.selectedIndex = 0; };
+    const fillCategories = () => { category.replaceChildren(); parseCategories(currentType).forEach((item) => { const option = el("option", "", item.name); option.value = item.name; category.append(option); }); if(block.id&&currentType===block.type&&block.category&&!parseCategories(currentType).some(item=>item.name===block.category)){const old=el("option","",`${block.category}（历史分类）`);old.value=block.category;category.append(old);}if(!category.options.length){const empty=el("option","","未分类");empty.value="未分类";category.append(empty);}category.value = block.category; if (!category.value) category.selectedIndex = 0; };
     types.forEach((type) => { const button = el("button", `${type === currentType ? 'active ' : ''}type-${type}`, type); button.onclick = () => { currentType = type; if(!colorCustom){currentColor=defaultTaskColor(type);colorRow.querySelectorAll('button[data-color]').forEach(b=>b.classList.toggle('active',b.dataset.color===currentColor));} typeRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); fillCategories(); }; typeRow.append(button); });
     fillCategories();
     colors.forEach(([key, label]) => { const button = el("button", `${key === currentColor ? "active " : ""}color-${key}`); button.dataset.color=key;button.title = label;button.setAttribute('aria-label',label); button.append(el("i")); button.onclick = () => { currentColor = key;colorCustom=true; colorRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); }; colorRow.append(button); });

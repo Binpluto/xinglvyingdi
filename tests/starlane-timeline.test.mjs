@@ -10,8 +10,8 @@ test('compressed timeline preserves time coordinates for all three scales',()=>{
     assert.equal(minuteAtRatio(2,step),1440-step);
   }
 });
-test('desktop and mobile reserve room below 24:00 without internal scrolling',()=>{
-  assert.equal(fittedTimelineHeight(768,312,false),426);
+test('desktop height doubles while mobile keeps its adaptive height',()=>{
+  assert.equal(fittedTimelineHeight(768,312,false),852);
   assert.equal(fittedTimelineHeight(844,350,true),404);
   assert.equal(fittedTimelineHeight(780,350,true),340);
 });

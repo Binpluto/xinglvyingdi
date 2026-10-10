@@ -4,6 +4,15 @@ import '../vercel-proxy/starlane-ui.css';
 import '../vercel-proxy/starlane-full-timeline.css';
 import {createVerticalTimeline} from '../vercel-proxy/starlane-timeline.mjs';
 import {dateRange,validDate,downloadAuthorizedTimeline} from '../vercel-proxy/starlane-data.mjs';
+import {sequenceCategories,createCategoryManager} from '../vercel-proxy/sequence-categories.mjs';
+import '../vercel-proxy/sequence-categories.css';
+
+export function SequenceCategoryManager({quests,categories,act,date}:{quests:Array<{id:number;title:string;detail:string}>;categories:Array<{id:number;parentType:string;name:string;colorKey:string}>;act:(p:Record<string,unknown>,s:string)=>Promise<boolean>;date:string}){
+  const host=useRef<HTMLDivElement>(null),callbacks=useRef(act);callbacks.current=act;
+  const [message,setMessage]=useState('');
+  useEffect(()=>{const target=host.current;if(!target)return;const manager=createCategoryManager({getCategories:(type:string)=>sequenceCategories(quests,type,categories),mutate:async(payload:Record<string,unknown>)=>{if(!await callbacks.current({...payload,timelineDate:date},'细分分类已保存'))throw new Error('保存失败，请重试');},onSaved:()=>setMessage('细分分类已保存'),notify:setMessage});target.replaceChildren(manager);return()=>manager.remove();},[quests,categories,date]);
+  return <div><div ref={host}/><small role="status">{message}</small></div>;
+}
 
 export type TimelineBlock={id:number;questId?:number;blockDate:string;startMinute:number;endMinute:number;title:string;type:'主线'|'支线'|'日常';categoryName:string;colorKey:string;note:string;createdAt:string;updatedAt:string};
 export async function fetchTimeRange(start:string,end:string):Promise<TimelineBlock[]> {

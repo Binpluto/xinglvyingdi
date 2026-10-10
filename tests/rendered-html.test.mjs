@@ -611,7 +611,7 @@ test("adds a draggable cloud-saved day timeline with custom categories and eight
   assert.match(client, /\[10, 15, 30\]/);
   assert.match(client, /手动填写/);
   assert.match(client, /timeBlockColors/);
-  assert.match(client, /saveTimeCategory/);
+  assert.match(client, /SequenceCategoryManager/);
   assert.match(route, /async function timeTrackState/);
   assert.match(route, /body\.action === "createTimeBlock"/);
   assert.match(route, /body\.action === "updateTimeBlock"/);

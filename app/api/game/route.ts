@@ -1488,11 +1488,20 @@ export async function POST(request: Request) {
       const categoryName = (body.categoryName ?? "").trim().replace(/\s+/g, " ").slice(0, 24);
       const colorKey = timeBlockColorKeys.has(body.colorKey ?? "") ? body.colorKey! : "jade";
       if (categoryName.length < 2) return Response.json({ error: "细分分类至少需要 2 个字" }, { status: 400 });
+      if(body.categoryId){
+        const existing=await db.prepare('SELECT parent_type AS parentType FROM time_block_categories WHERE id=? AND user_email=?').bind(Number(body.categoryId),identity.email).first<{parentType:string}>();
+        if(!existing)return Response.json({error:'细分分类不存在'},{status:404});
+        if(existing.parentType!==parentType)return Response.json({error:'所属大类不可修改'},{status:400});
+        const duplicate=await db.prepare('SELECT id FROM time_block_categories WHERE user_email=? AND parent_type=? AND name=? AND id<>?').bind(identity.email,parentType,categoryName,Number(body.categoryId)).first();
+        if(duplicate)return Response.json({error:'该大类下已有同名分类'},{status:409});
+        await db.prepare('UPDATE time_block_categories SET name=?,color_key=? WHERE id=? AND user_email=?').bind(categoryName,colorKey,Number(body.categoryId),identity.email).run();
+      }else{
       await db.prepare(`
         INSERT INTO time_block_categories (user_email, parent_type, name, color_key)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(user_email, parent_type, name) DO UPDATE SET color_key = excluded.color_key
       `).bind(identity.email, parentType, categoryName, colorKey).run();
+      }
     } else if (body.action === "deleteTimeCategory") {
       const categoryId = Number(body.categoryId);
       const result = await db.prepare("DELETE FROM time_block_categories WHERE id = ? AND user_email = ?")
