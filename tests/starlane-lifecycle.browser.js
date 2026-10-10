@@ -5,7 +5,7 @@ await page.route('**/api/game?*',async route=>{
   await route.fulfill({json:{quests:[],user:{email:'test@example.com'}}});
 });
 await page.goto('http://127.0.0.1:8765/offline.html');
-await page.setContent('<html><head><style>*{box-sizing:border-box}body{margin:0}</style><link rel="stylesheet" href="/starlane-ui.css"><link rel="stylesheet" href="/starlane-addons.css?v=5"><link rel="stylesheet" href="/starlane-flat.css?v=6"></head><body><div id="app"><nav class="nav-stack"><button class="nav-item"><small>营地</small></button><button class="nav-item"><small>任务</small></button></nav><main class="main-content"><p>测试营地</p></main></div><script type="module" src="/starlane-ui.js?v=6"></script></body></html>');
+await page.setContent('<html><head><style>*{box-sizing:border-box}body{margin:0}</style><link rel="stylesheet" href="/starlane-ui.css"><link rel="stylesheet" href="/starlane-addons.css?v=5"><link rel="stylesheet" href="/starlane-full-timeline.css?v=7"></head><body><div id="app"><nav class="nav-stack"><button class="nav-item"><small>营地</small></button><button class="nav-item"><small>任务</small></button></nav><main class="main-content"><p>测试营地</p></main></div><script type="module" src="/starlane-ui.js?v=7"></script></body></html>');
 const frame=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true)))));
 await page.getByRole('button',{name:'▥时轨'}).click();
 await expect(page.getByRole('button',{name:'周视图'})).toBeVisible();
@@ -31,7 +31,8 @@ for(let i=0;i<3;i++){
   await expect(page.locator('.starlane-nav')).toHaveCount(1);
   await expect(page.getByPlaceholder('例如：完成产品方案结构')).toHaveValue('保留未保存草稿');
   await expect(page.getByRole('button',{name:'周视图'})).toHaveAttribute('aria-pressed','true');
-  await expect(page.locator('.flat-week-hour')).toHaveCount(168);
+  await expect(page.locator('.full-timeline-lane')).toHaveCount(7);
+  await expect(page.locator('.full-timeline-hours span')).toHaveCount(25);
   await expect(page.locator('.starlane-compat-scroll')).toHaveCount(0);
   assert.equal(await page.evaluate(()=>window.originalTimeline===document.querySelector('.starlane-compat-page')),true);
   await expect(page.locator('[data-starlane-hidden]')).not.toBeVisible();
@@ -52,4 +53,4 @@ await expect(page.getByRole('button',{name:'周视图'})).toBeVisible();
 await page.evaluate(()=>{document.querySelector('#app').innerHTML='<main class="auth-page">邮箱登录</main>';});await frame();
 await expect(page.locator('.starlane-compat-page')).toHaveCount(0);
 await expect(page.locator('.starlane-compat-editor-backdrop')).toHaveCount(0);
-return {emptyDate:'preserved',repeatedRemounts:3,draft:'preserved',fullWeekHours:168,staleRequest:'ignored',logout:'cleared'};
+return {emptyDate:'preserved',repeatedRemounts:3,draft:'preserved',fullWeekColumns:7,staleRequest:'ignored',logout:'cleared'};

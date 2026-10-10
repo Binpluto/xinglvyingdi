@@ -626,7 +626,7 @@ test("adds a draggable cloud-saved day timeline with custom categories and eight
   assert.match(proxy, /starlane-ui\.js/);
   assert.match(proxy, /starlane-ui\.css/);
   assert.match(proxyClient, /const BLOCK_PREFIX = "▥时轨\|"/);
-  assert.match(proxyClient, /createDayBoard/);
+  assert.match(proxyClient, /createVerticalTimeline/);
   assert.match(proxyStyles, /\.starlane-compat-grid/);
 });
 

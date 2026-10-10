@@ -51,13 +51,13 @@ function injectVercelEnhancements(html) {
     '<link rel="stylesheet" href="/mobile-reminder-ui.css?v=1">',
     '<link rel="stylesheet" href="/starlane-ui.css?v=2">',
     '<link rel="stylesheet" href="/starlane-addons.css?v=5">',
-    '<link rel="stylesheet" href="/starlane-flat.css?v=6">',
+    '<link rel="stylesheet" href="/starlane-full-timeline.css?v=7">',
     '<script defer src="/energy-ui.js?v=2"></script>',
     '<script defer src="/medal-ui.js?v=1"></script>',
     '<script defer src="/monthly-ui.js?v=1"></script>',
     '<script defer src="/weekly-summary-ui.js?v=1"></script>',
     '<script defer src="/mobile-reminder-ui.js?v=1"></script>',
-    '<script type="module" src="/starlane-ui.js?v=6"></script>',
+    '<script type="module" src="/starlane-ui.js?v=7"></script>',
     '<script defer src="/premium-ui.js?v=4"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
   ].join("");

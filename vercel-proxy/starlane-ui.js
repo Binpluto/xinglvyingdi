@@ -1,6 +1,6 @@
 import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -26,6 +26,7 @@ import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
   let navigationVersion = 0;
   const hiddenNodes = new Map();
   const scrollPositions = new Map();
+  let disposeTimeline=null;
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -126,6 +127,7 @@ import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
     pageOpen = false;
     opening = false;
     navigationVersion += 1;
+    disposeTimeline?.();disposeTimeline=null;
     pageElement?.remove();
     pageElement = null;
     document.querySelectorAll('.starlane-compat-editor-backdrop').forEach(node=>node.remove());
@@ -189,7 +191,7 @@ import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
     const blocks = filterRange(parseBlocks(), range.start, range.end).sort((a, b) => a.date.localeCompare(b.date) || a.start-b.start);
     const header = el("header", "starlane-compat-header");
     const copy = el("div");
-    copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "全天平铺：拖选空格记录时间，拖动色格移动安排，点开编辑详情。"));
+    copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "全天纵向展开：拖选时间，移动色块，点开编辑详情。"));
     const dateNav = el("div", "starlane-compat-date");
     const prev = el("button", "", "‹"); prev.setAttribute('aria-label',viewMode==='week'?'上一周':'前一天'); prev.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?-7:-1); renderPage(); };
     const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { if(!validDate(dateInput.value)){dateInput.value=selectedDate;notify('请选择有效日期，已保留当前日程');return;} selectedDate = dateInput.value; renderPage(); };
@@ -215,19 +217,19 @@ import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel=el('div','flat-timeline-panel');
     const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[]).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
-    timelinePanel.append(viewMode==='week'
-      ? createWeekOverview({date:selectedDate,blocks,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},onTask})
-      : createDayBoard({date:selectedDate,step:granularity,blocks,
+    const timeline=createVerticalTimeline({date:selectedDate,step:granularity,blocks,mode:viewMode,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},
           onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:'核心项目',color:'gold',note:''});},
           onEdit:block=>openEditor({...block}),
           onMove:async block=>{try{await saveBlock(block);}catch(error){notify(error.message);renderPage();}},
           onTask
-        }));
+        });
+    timelinePanel.append(timeline);
     const sidebar = el('div', 'starlane-task-sidebar');
     const categoryDetails=el('details','flat-sidebar-details');categoryDetails.append(el('summary','','分类与颜色设置'),renderCategories());
     sidebar.append(renderTaskTray(), categoryDetails);
     layout.append(timelinePanel, sidebar);
     scrollPositions.clear();
+    disposeTimeline?.();disposeTimeline=timeline.dispose;
     pageElement.replaceChildren(header, summary, toolbar, layout);
     mountPage();
   }
