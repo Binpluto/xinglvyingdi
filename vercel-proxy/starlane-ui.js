@@ -1,4 +1,4 @@
-import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
+import { availableTasks, completedOnDate, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=11';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
 import {createVerticalTimeline} from './starlane-timeline.mjs?v=8';
 import {sequenceBlocks} from './sequence-records.mjs?v=10';
@@ -216,7 +216,7 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
     const exportButton=el('button','',hasPaidTools(data)?'导出日程':'导出日程 · 付费'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel=el('div','flat-timeline-panel');
-    const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[]).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
+    const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[],selectedDate).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
     const timeline=createVerticalTimeline({date:selectedDate,step:granularity,blocks,mode:viewMode,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},
           onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:'核心项目',color:'gold',note:''});},
           onEdit:block=>openEditor({...block}),
@@ -242,16 +242,25 @@ import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
   }
   function renderTaskTray() {
     const tray = el('section', 'starlane-task-tray');
-    tray.append(el('h3', '', '任务待排区'), el('p', 'starlane-task-hint', '拖到轨道，或点选任务后点选时间。保存前可调整时长；保存后对应任务自动完成。'));
+    tray.append(el('h3', '', '任务待排区'), el('p', 'starlane-task-hint', '当日已完成置顶；仅显示已到时间的当日及过往任务，按时间近远排列。未来任务隐藏，未设时间的最后。已完成任务可补记，不重复计奖。'));
     const refresh = el('button', 'refresh', '刷新任务');
-    refresh.onclick = async () => { refresh.disabled = true; try { await fetchData(); renderPage(); } catch (error) { notify(error.message); refresh.disabled = false; } };
+    refresh.onclick = async () => {
+      if(refresh.disabled)return;
+      refresh.disabled=true;refresh.setAttribute('aria-busy','true');
+      const spinner=el('span','sequence-refresh-spinner');spinner.setAttribute('aria-hidden','true');refresh.replaceChildren(spinner,document.createTextNode('刷新中…'));
+      try{await fetchData();renderPage();notify('任务已刷新');}
+      catch(error){notify(error.message||'刷新失败，请重试');}
+      finally{refresh.disabled=false;refresh.removeAttribute('aria-busy');refresh.replaceChildren(document.createTextNode('刷新任务'));}
+    };
     tray.append(refresh);
-    const list = el('div', 'starlane-task-list'), tasks = availableTasks(data.quests || []);
-    if (!tasks.length) list.append(el('p', '', '暂无未完成任务，可先到任务页添加。'));
+    const list = el('div', 'starlane-task-list'), tasks = availableTasks(data.quests || [],selectedDate);
+    if (!tasks.length) list.append(el('p', '', '暂无当日完成或待排任务，可先到任务页添加。'));
     tasks.forEach(task => {
       const button = el('button', 'starlane-task-item'); button.draggable = true;
+      const completed=completedOnDate(task,selectedDate);if(completed)button.classList.add('task-completed-today');
       Object.entries(taskTrayStyle(task.type)).forEach(([key,value])=>button.style.setProperty(key,value));
-      button.append(el('b', '', task.title), el('small', '', `${task.type} · ${task.dueAt ? task.dueAt.slice(0,10) : '未设日期'}`));
+      const due=task.dueAt?(validDate(task.dueAt)?`${task.dueAt} 全天`:new Date(task.dueAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})):'未设时间';
+      button.append(el('b', '', task.title), el('small', '', `${completed?'✓ 当日已完成 · ':''}${task.type} · ${due}`));
       button.ondragstart = event => { selectedTask = null; event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy'; };
       button.onclick = () => {
         selectedTask = task;

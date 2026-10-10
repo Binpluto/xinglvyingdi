@@ -1,10 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {availableTasks, taskSlot, exportTimeline,dateRange,filterRange,validDate} from '../vercel-proxy/starlane-data.mjs';
+import {availableTasks,completedOnDate, taskSlot, exportTimeline,dateRange,filterRange,validDate} from '../vercel-proxy/starlane-data.mjs';
 
-test('task tray excludes completed and internal records without hiding future tasks', () => {
+test('task tray omits undated completions, internal records and future tasks', () => {
   const tasks = [ {id:1,title:'明天',done:0,dueAt:'2026-10-11'}, {id:2,title:'今天',done:0,dueAt:'2026-10-10'}, {id:3,title:'完成',done:1}, {id:4,title:'▥时轨|2026-10-10'}, {id:5,title:'▥分类|日常'}, {id:6,title:'☾ 月度航向 2026-10'}, {id:7,title:'无日期',done:0} ];
-  assert.deepEqual(availableTasks(tasks).map(q=>q.id), [2,1,7]);
+  assert.deepEqual(availableTasks(tasks,'2026-10-10',new Date('2026-10-10T12:00:00')).map(q=>q.id), [2,7]);
+});
+test('selected-day completions lead, then unfinished tasks by nearest time, undated last',()=>{
+  const date='2026-10-10', now=new Date(date+'T12:00:00');
+  const tasks=[
+    {id:1,title:'远期逾期',done:0,dueAt:'2026-01-01'},
+    {id:2,title:'即将开始',done:0,dueAt:date+'T12:15:00'},
+    {id:3,title:'刚刚逾期',done:0,dueAt:date+'T11:40:00'},
+    {id:4,title:'已完成较早',done:1,completedAt:new Date(date+'T09:00:00').toISOString()},
+    {id:5,title:'已完成较晚',done:1,completedAt:new Date(date+'T11:00:00').toISOString()},
+    {id:6,title:'昨天完成',done:1,completedAt:new Date('2026-10-09T18:00:00').toISOString()},
+    {id:7,title:'无日期',done:0},
+    {id:8,title:'▥分类|日常',done:1,completedDate:date},
+  ];
+  assert.deepEqual(availableTasks(tasks,date,now).map(q=>q.id),[5,4,3,1,7]);
+  assert.equal(tasks[0].id,1);
+});
+test('history tray excludes tasks beyond the viewed day or current instant',()=>{
+  const tasks=[{id:1,title:'历史',done:0,dueAt:'2026-10-08T12:00:00'},{id:2,title:'今天',done:0,dueAt:'2026-10-10'},{id:3,title:'未来日期',done:0,dueAt:'2026-10-11'},{id:4,title:'未来时刻',done:0,dueAt:'2026-10-10T19:00:00'},{id:5,title:'未定时',done:0}];
+  const now=new Date('2026-10-10T12:00:00');
+  assert.deepEqual(availableTasks(tasks,'2026-10-09',now).map(q=>q.id),[1,5]);
+  assert.deepEqual(availableTasks(tasks,'2026-10-10',now).map(q=>q.id),[2,1,5]);
+});
+test('completion day uses local dates, not the UTC prefix, and supports explicit recorded dates',()=>{
+  const stamp=new Date(2026,9,11,0,15).toISOString();
+  assert.equal(completedOnDate({done:1,completedAt:stamp},'2026-10-11'),true);
+  assert.equal(completedOnDate({done:1,completedAt:stamp},'2026-10-10'),false);
+  assert.equal(completedOnDate({done:1,completedDate:'2026-10-09',completedAt:stamp},'2026-10-09'),true);
 });
 test('drop snaps to each grid and clips end-of-day', () => {
   for (const step of [10,15,30]) {

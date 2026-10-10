@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { availableTasks, taskSlot, dateRange, validDate } from '../vercel-proxy/starlane-data.mjs';
+import { availableTasks, completedOnDate, taskSlot, dateRange, validDate } from '../vercel-proxy/starlane-data.mjs';
 import {StarTimelineView, TimeRangeExport, fetchTimeRange} from './TimeTrackViews';
 import '../vercel-proxy/starlane-addons.css';
 import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
@@ -1534,6 +1534,8 @@ type TimeBlockDraft = { id?: number; questId?:number; blockDate?: string; title:
 
 function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; loadTimeline: (date: string) => Promise<boolean> }) {
   const [granularity, setGranularity] = useState<10 | 15 | 30>(15);
+  const [refreshingTasks,setRefreshingTasks]=useState(false);
+  const [refreshMessage,setRefreshMessage]=useState('');
   const [draft, setDraft] = useState<TimeBlockDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Quest | null>(null);
@@ -1604,6 +1606,14 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     await loadTimeline(nextDate);
   }
 
+  async function refreshTasks(){
+    if(refreshingTasks)return;
+    setRefreshingTasks(true);setRefreshMessage('');
+    try{const ok=await loadTimeline(date);setRefreshMessage(ok?'任务已刷新':'刷新失败，请重试');}
+    catch{setRefreshMessage('刷新失败，请检查网络后重试');}
+    finally{setRefreshingTasks(false);}
+  }
+
   const visibleBlocks=viewMode==='week'?weekBlocks:blocks;
   const totals = (["主线", "支线", "日常"] as const).map((type) => ({ type, minutes: visibleBlocks.filter((block) => block.type === type).reduce((total, block) => total + block.endMinute - block.startMinute, 0) }));
 
@@ -1614,12 +1624,12 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     <div className="star-lane-summary">{totals.map((item) => <div key={item.type} className={`summary-${item.type}`}><span>{item.type}</span><b>{Math.floor(item.minutes / 60)}<small>h</small> {item.minutes % 60}<small>m</small></b></div>)}<div className="summary-total"><span>已记录</span><b>{visibleBlocks.reduce((total, block) => total + block.endMinute - block.startMinute, 0)}<small> min</small></b></div></div>
     <div className="star-lane-toolbar"><div><span>时间刻度</span>{([10, 15, 30] as const).map((minute) => <button key={minute} className={granularity === minute ? "active" : ""} onClick={() => setGranularity(minute)}>{minute} min</button>)}</div><button className="manual-block" onClick={() => setDraft({ title: "", type: "主线", categoryName: "核心项目", colorKey: "gold", note: "", startMinute: 9 * 60, endMinute: 10 * 60 })}>＋ 手动填写</button></div>
     <div className="star-lane-layout">
-   {viewMode==='week' && weekStatus ? <p role="status">{weekStatus}</p> : <StarTimelineView date={date} step={granularity} mode={viewMode} blocks={visibleBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:'核心项目',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id&&!q.done);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date},'时间块已更新')} onDay={day=>{setViewMode('day');void changeDate(day);}} />}
+   {viewMode==='week' && weekStatus ? <p role="status">{weekStatus}</p> : <StarTimelineView date={date} step={granularity} mode={viewMode} blocks={visibleBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:'核心项目',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date},'时间块已更新')} onDay={day=>{setViewMode('day');void changeDate(day);}} />}
       <aside className="star-lane-sidebar">
       <section className="starlane-task-tray">
-        <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '自动显示未完成任务。拖到轨道，或点选任务后点选时间；保存后对应任务自动完成。'}</p>
-        <div className="starlane-exports"><button onClick={() => void loadTimeline(date)}>刷新任务</button></div>
-        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" style={taskTrayStyle(task.type) as CSSProperties} key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
+        <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '当日已完成置顶；仅显示已到时间的当日及过往任务。未来任务隐藏，未设时间的最后。已完成任务可补记，不重复计奖。'}</p>
+        <div className="starlane-exports"><button disabled={refreshingTasks} aria-busy={refreshingTasks} onClick={()=>void refreshTasks()}>{refreshingTasks&&<span className="sequence-refresh-spinner" aria-hidden="true"/>}{refreshingTasks?'刷新中…':'刷新任务'}</button></div><small role="status">{refreshMessage}</small>
+        <div className="starlane-task-list">{availableTasks(data.quests,date).map((task: Quest) => <button className={`starlane-task-item${completedOnDate(task,date) ? " task-completed-today" : ""}`} style={taskTrayStyle(task.type) as CSSProperties} key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{completedOnDate(task,date) ? "✓ 当日已完成 · " : ""}{task.type} · {task.dueAt ? task.dueAt.length===10 ? `${task.dueAt} 全天` : new Date(task.dueAt).toLocaleString("zh-CN",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}) : "未设时间"}</small></button>)}{!availableTasks(data.quests,date).length && <p>暂无当日完成或待排任务，可先到任务页添加。</p>}</div>
       </section>
 
         <details className="flat-sidebar-details"><summary>分类与颜色设置</summary>

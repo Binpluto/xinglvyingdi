@@ -26,9 +26,38 @@ export function filterRange(blocks, start, end) {
   return blocks.filter(b=>b.date>=start && b.date<=end);
 }
 
-export function availableTasks(quests) {
-  return quests.filter(q => !q.done && !/^(▥时轨\||▥分类\||☾ 月度航向 )/.test(q.title))
-    .sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999') || a.id - b.id);
+function deviceDate(date){return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;}
+function completionTime(task){
+  if(!task.completedAt)return NaN;
+  const stamp=/^\d{4}-\d{2}-\d{2} /.test(task.completedAt)?task.completedAt.replace(' ','T')+'Z':task.completedAt;
+  return Date.parse(stamp);
+}
+export function completedOnDate(task,date){
+  if(!task.done)return false;
+  if(validDate(task.completedDate))return task.completedDate===date;
+  const stamp=completionTime(task);return Number.isFinite(stamp)&&deviceDate(new Date(stamp))===date;
+}
+export function availableTasks(quests,date=deviceDate(new Date()),now=new Date()) {
+  const anchor=date===deviceDate(now)?now.getTime():new Date(date+'T12:00:00').getTime();
+  const cutoff=Math.min(now.getTime(),new Date(date+'T23:59:59.999').getTime());
+  const reached=task=>{
+    if(!task.dueAt)return true;
+    const stamp=validDate(task.dueAt)?new Date(task.dueAt+'T00:00:00').getTime():Date.parse(task.dueAt);
+    return Number.isFinite(stamp)&&stamp<=cutoff;
+  };
+  const distance=task=>{
+    if(!task.dueAt)return Infinity;
+    if(validDate(task.dueAt)){if(task.dueAt===date)return 0;return Math.abs(new Date(task.dueAt+'T12:00:00').getTime()-anchor);}
+    const stamp=Date.parse(task.dueAt);return Number.isFinite(stamp)?Math.abs(stamp-anchor):Infinity;
+  };
+  return quests.filter(q => (q.done?completedOnDate(q,date):reached(q)) && !/^(▥时轨\||▥分类\||☾ 月度航向 )/.test(q.title))
+    .sort((a,b)=>{
+      const aDone=completedOnDate(a,date),bDone=completedOnDate(b,date);
+      if(aDone!==bDone)return aDone?-1:1;
+      if(aDone&&bDone)return ((completionTime(b)||0)-(completionTime(a)||0))||b.id-a.id;
+      const da=distance(a),db=distance(b);if(da!==db)return da<db?-1:1;
+      return (a.dueAt||'9999').localeCompare(b.dueAt||'9999')||a.id-b.id;
+    });
 }
 
 export function taskSlot(minute, step) {
