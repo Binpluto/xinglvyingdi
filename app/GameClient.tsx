@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { availableTasks, taskSlot, dateRange } from '../vercel-proxy/starlane-data.mjs';
+import { availableTasks, taskSlot, dateRange, validDate } from '../vercel-proxy/starlane-data.mjs';
 import {StarWeekView, TimeRangeExport, fetchTimeRange} from './TimeTrackViews';
 import '../vercel-proxy/starlane-addons.css';
 import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
@@ -1661,6 +1661,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
   }
 
   async function changeDate(nextDate: string) {
+    if(!validDate(nextDate))return;
     setDraft(null);
     await loadTimeline(nextDate);
   }

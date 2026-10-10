@@ -1,4 +1,4 @@
-import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate } from './starlane-data.mjs?v=4';
+import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
 
 (() => {
@@ -20,6 +20,11 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
   let granularity = 15;
   let selectedTask = null;
   let viewMode = 'day';
+  let pageElement = null;
+  let opening = false;
+  let navigationVersion = 0;
+  const hiddenNodes = new Map();
+  const scrollPositions = new Map();
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -118,42 +123,67 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
   }
   function closePage() {
     pageOpen = false;
-    document.querySelector(".starlane-compat-page")?.remove();
-    document.querySelectorAll(".main-content > [data-starlane-hidden]").forEach((node) => { node.hidden = false; node.removeAttribute("data-starlane-hidden"); });
+    opening = false;
+    navigationVersion += 1;
+    pageElement?.remove();
+    pageElement = null;
+    document.querySelectorAll('.starlane-compat-editor-backdrop').forEach(node=>node.remove());
+    hiddenNodes.forEach((wasHidden,node)=>{node.hidden=wasHidden;node.removeAttribute('data-starlane-hidden');});
+    hiddenNodes.clear();
+    scrollPositions.clear();
     document.querySelector(".starlane-nav")?.classList.remove("active");
   }
+  function mountPage() {
+    if(!pageOpen||!pageElement)return;
+    const main=document.querySelector('.main-content');
+    if(!main)return;
+    // Reattach the same subtree, retaining scroll, selected view and event handlers.
+    const remount=pageElement.parentElement!==main;
+    if(remount)main.append(pageElement);
+    [...main.children].forEach(child=>{
+      if(child===pageElement)return;
+      if(!hiddenNodes.has(child))hiddenNodes.set(child,child.hidden);
+      if(!child.hidden)child.hidden=true;
+      if(!child.hasAttribute('data-starlane-hidden'))child.setAttribute('data-starlane-hidden','1');
+    });
+    for(const node of hiddenNodes.keys())if(!node.isConnected)hiddenNodes.delete(node);
+    if(remount)scrollPositions.forEach((position,node)=>{if(pageElement.contains(node)){node.scrollTop=position.top;node.scrollLeft=position.left;}});
+    document.querySelectorAll('.nav-stack .nav-item').forEach(item=>item.classList.toggle('active',item.classList.contains('starlane-nav')));
+  }
   async function openPage() {
-    if (pageOpen) return;
+    if(pageOpen&&pageElement){mountPage();return;}
+    if(opening)return;
+    opening=true;
+    const version=++navigationVersion;
     try {
       const current = await fetchData();
+      if(version!==navigationVersion)return;
       if (current.timeTrack) return;
-      pageOpen = true;
       const main = document.querySelector(".main-content");
       if (!main) return;
-      [...main.children].forEach((child) => { child.hidden = true; child.setAttribute("data-starlane-hidden", "1"); });
-      main.append(el("section", "starlane-compat-page"));
-      document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.classList.contains("starlane-nav")));
+      pageElement=el('section','starlane-compat-page');
+      pageElement.addEventListener('scroll',event=>{const node=event.target;if(node instanceof HTMLElement && pageElement?.contains(node))scrollPositions.set(node,{top:node.scrollTop,left:node.scrollLeft});},true);
+      pageOpen = true;
+      mountPage();
       renderPage();
-    } catch (error) { notify(error instanceof Error ? error.message : "暂时无法打开星轨"); }
+    } catch (error) { if(version===navigationVersion){closePage();notify(error instanceof Error ? error.message : "暂时无法打开星轨");} }
+    finally {if(version===navigationVersion)opening=false;}
   }
   function ensureNav() {
     hideStorageQuests();
+    if(document.querySelector('.auth-page')){if(pageOpen||opening)closePage();data=null;return;}
     const nav = document.querySelector(".nav-stack");
-    if (!nav || [...nav.querySelectorAll(".nav-item small")].some((item) => item.textContent === "时轨")) return;
-    const button = el("button", "nav-item starlane-nav");
-    button.append(el("span", "", "▥"), el("small", "", "时轨"));
-    button.onclick = () => void openPage();
-    nav.insertBefore(button, nav.children[2] || null);
-    nav.querySelectorAll(".nav-item:not(.starlane-nav)").forEach((item) => {
-      if (item.dataset.starlaneBound) return;
-      item.dataset.starlaneBound = "1";
-      item.addEventListener("click", closePage, true);
-    });
+    if(!nav)return;
+    if(![...nav.querySelectorAll('.nav-item small')].some(item=>item.textContent==='时轨')){
+      const button=el('button','nav-item starlane-nav');button.append(el('span','','▥'),el('small','','时轨'));
+      nav.insertBefore(button,nav.children[2]||null);
+    }
+    mountPage();
   }
   function renderPage() {
-    const page = document.querySelector(".starlane-compat-page");
-    if (!page || !data) return;
-    page.replaceChildren();
+    if (!pageOpen || !pageElement || !data) return;
+    // Build before replacing the visible page. A failed calculation must not blank it.
+    if(!validDate(selectedDate))selectedDate=localDateKey(new Date());
     const range = dateRange(selectedDate, viewMode);
     const blocks = filterRange(parseBlocks(), range.start, range.end).sort((a, b) => a.date.localeCompare(b.date) || a.start-b.start);
     const header = el("header", "starlane-compat-header");
@@ -161,7 +191,7 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
     copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "拖拽空白轨道创建时间块；拖动色块调整时间，底部把手改变时长。"));
     const dateNav = el("div", "starlane-compat-date");
     const prev = el("button", "", "‹"); prev.setAttribute('aria-label',viewMode==='week'?'上一周':'前一天'); prev.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?-7:-1); renderPage(); };
-    const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { selectedDate = dateInput.value; renderPage(); };
+    const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { if(!validDate(dateInput.value)){dateInput.value=selectedDate;notify('请选择有效日期，已保留当前日程');return;} selectedDate = dateInput.value; renderPage(); };
     const next = el("button", "", "›"); next.setAttribute('aria-label',viewMode==='week'?'下一周':'后一天'); next.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?7:1); renderPage(); };
     const today = el("button", "today", "今天"); today.disabled = selectedDate === localDateKey(new Date()); today.onclick = () => { selectedDate = localDateKey(new Date()); renderPage(); };
     dateNav.append(prev, dateInput, next, today); header.append(copy, dateNav);
@@ -214,7 +244,9 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
     const sidebar = el('div', 'starlane-task-sidebar');
     sidebar.append(renderTaskTray(), renderCategories());
     layout.append(timelinePanel, sidebar);
-    page.append(header, summary, toolbar, layout);
+    scrollPositions.clear();
+    pageElement.replaceChildren(header, summary, toolbar, layout);
+    mountPage();
     requestAnimationFrame(() => { scroll.scrollTop = Math.max(0, 360 / granularity * slotHeight - 20); });
   }
   function minuteAt(event, grid, slotHeight) {
@@ -353,6 +385,13 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
     dialog.append(close, header, titleLabel, typeField, times, categoryLabel, colorField, noteLabel, footer); backdrop.append(dialog); backdrop.onmousedown = (event) => { if (event.target === backdrop) backdrop.remove(); }; document.body.append(backdrop); title.focus();
   }
   let queued = false;
+  // Delegation survives replacement of the upstream navigation by React.
+  document.addEventListener('click',event=>{
+    const target=event.target instanceof Element?event.target.closest('.nav-item, .signout-link, .invite-fab'):null;
+    if(!target)return;
+    if(target.classList.contains('starlane-nav')){event.preventDefault();void openPage();}
+    else if(target.closest('.nav-stack')||target.classList.contains('signout-link')||target.classList.contains('invite-fab'))closePage();
+  },true);
   function schedule() {
     if (queued) return; queued = true;
     requestAnimationFrame(() => { queued = false; ensureNav(); });
