@@ -126,6 +126,7 @@ export const timeBlocks = sqliteTable("time_blocks", {
   type: text("type").notNull(),
   categoryName: text("category_name").notNull().default("未分类"),
   colorKey: text("color_key").notNull().default("jade"),
+  colorCustom: integer('color_custom',{mode:'boolean'}),
   note: text("note").notNull().default(""),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

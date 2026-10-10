@@ -24,6 +24,20 @@ test('task category edits immediately flow into sequence records and exports',as
   g.state.quests.find(q=>q.id===1).type='日常';
   const b=sequenceBlocks(g.state.quests)[0];assert.equal(b.type,'日常');assert.equal(b.color,'jade');assert.equal(b.category,'生活整理');
 });
+test('explicit user colors survive category changes, edits and default-color reset',async()=>{
+  const g=fake([{id:1,title:'学习',detail:'说明',type:'主线',done:0}]);
+  await persistSequence(g,{...input,questId:1,color:'rose',colorCustom:true});
+  g.state.quests.find(q=>q.id===1).type='支线';
+  let b=sequenceBlocks(g.state.quests)[0];assert.equal(b.type,'支线');assert.equal(b.color,'rose');assert.equal(b.colorCustom,true);
+  await persistSequence(g,{...input,...b,end:660});b=sequenceBlocks(g.state.quests)[0];assert.equal(b.color,'rose');
+  await persistSequence(g,{...input,...b,color:'azure',colorCustom:false});
+  g.state.quests.find(q=>q.id===1).type='日常';b=sequenceBlocks(g.state.quests)[0];assert.equal(b.color,'jade');assert.equal(b.colorCustom,false);
+});
+test('legacy automatic side purple changes to blue but other legacy custom colors remain',()=>{
+  const record=k=>({id:2,title:'▥时轨|2026-10-10|540|600',type:'支线',detail:JSON.stringify({t:'学习',m:'支线',k})});
+  assert.equal(sequenceBlocks([record('violet')])[0].color,'azure');
+  assert.equal(sequenceBlocks([record('rose')])[0].color,'rose');
+});
 test('ambiguous old names and foreign task ids are not silently linked',async()=>{
   const legacy={id:3,title:'▥时轨|2026-10-10|540|600',type:'主线',detail:JSON.stringify({t:'学习',m:'主线'})};
   const g=fake([{id:1,title:'学习',type:'日常'},{id:2,title:'学习',type:'支线'},legacy]);

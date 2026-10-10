@@ -1,6 +1,7 @@
+import {sequenceColor,defaultTaskColor} from './sequence-colors.mjs';
 export const BLOCK_PREFIX='▥时轨|'; // Keep existing cloud records readable after the display-name change.
 const types=['主线','支线','日常'];
-const defaults={主线:['核心项目','gold'],支线:['创作','violet'],日常:['生活整理','jade']};
+const defaults={主线:['核心项目','gold'],支线:['创作','azure'],日常:['生活整理','jade']};
 export function isInternal(q){return /^(▥时轨\||▥分类\||☾ 月度航向 )/.test(q.title||'');}
 export function sequenceBlocks(quests){
   const tasks=quests.filter(q=>!isInternal(q));
@@ -11,8 +12,9 @@ export function sequenceBlocks(quests){
       const task=matches.length===1?matches[0]:null;
       const type=task?.type||detail.m||record.type||'日常';
       const changed=task&&type!==detail.m;
+      const appearance=sequenceColor(type,detail.m||record.type,detail.k,detail.u);
       return [{id:record.id,date,start:Number(start),end:Number(end),title:task?.title||detail.t||'未命名',type,
-        category:changed?defaults[type]?.[0]||'未分类':detail.c||'未分类',color:changed?defaults[type]?.[1]||'jade':detail.k||'jade',note:detail.n||'',questId:task?.id||null,recordKey:detail.r||null}];
+        category:changed?defaults[type]?.[0]||'未分类':detail.c||'未分类',...appearance,note:detail.n||'',questId:task?.id||null,recordKey:detail.r||null}];
     }catch{return [];}
   });
 }
@@ -44,7 +46,8 @@ export async function persistSequence(gateway,input){
     if(!task)throw new Error('任务保存结果未确认，请重试');
   }
   if(task.type!==input.type){data=await gateway.act({action:'editQuest',questId:task.id,title:task.title,detail:task.detail,type:input.type});}
-  const detail=JSON.stringify({q:task.id,r:input.recordKey,t:input.title.slice(0,24),m:input.type,c:input.category.slice(0,12),k:input.color,n:(input.note||'').slice(0,24)});
+  const custom=input.colorCustom??sequenceColor(input.type,meta.m||input.type,meta.k,meta.u).colorCustom;
+  const detail=JSON.stringify({q:task.id,r:input.recordKey,t:input.title.slice(0,24),m:input.type,c:input.category.slice(0,12),k:custom?input.color:defaultTaskColor(input.type),u:custom?1:0,n:(input.note||'').slice(0,24)});
   if(detail.length>180)throw new Error('记录说明太长，请缩短备注');
   data=await gateway.act({action:'editQuest',questId:record.id,title,type:input.type,detail});
   // Re-read completion status: moving, editing, retrying and reopening do not complete twice.

@@ -7,6 +7,7 @@ import '../vercel-proxy/starlane-addons.css';
 import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
 import {installTravelerGuide} from '../vercel-proxy/traveler-guide.mjs';
 import '../vercel-proxy/traveler-guide.css';
+import {defaultTaskColor,taskTrayStyle} from '../vercel-proxy/sequence-colors.mjs';
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number; avatar_key: string; custom_avatar: string | null };
@@ -87,7 +88,7 @@ type DailyQuestCoach = {
   targetLabel: string;
   difficultyRates: { easy: number | null; medium: number | null; hard: number | null };
 };
-type TimeBlockRecord = { id: number; questId?:number; blockDate: string; startMinute: number; endMinute: number; title: string; type: "主线" | "支线" | "日常"; categoryName: string; colorKey: string; note: string; createdAt: string; updatedAt: string };
+type TimeBlockRecord = { id: number; questId?:number; blockDate: string; startMinute: number; endMinute: number; title: string; type: "主线" | "支线" | "日常"; categoryName: string; colorKey: string; colorCustom?:boolean; note: string; createdAt: string; updatedAt: string };
 type TimeBlockCategory = { id: number; parentType: "主线" | "支线" | "日常"; name: string; colorKey: string };
 type TimeTrackState = { date: string; blocks: TimeBlockRecord[]; categories: TimeBlockCategory[] };
 type GameData = {
@@ -1529,7 +1530,7 @@ function shiftLocalDate(date: string, days: number) {
   return localDateKey(moment);
 }
 
-type TimeBlockDraft = { id?: number; questId?:number; blockDate?: string; title: string; type: "主线" | "支线" | "日常"; categoryName: string; colorKey: string; note: string; startMinute: number; endMinute: number };
+type TimeBlockDraft = { id?: number; questId?:number; blockDate?: string; title: string; type: "主线" | "支线" | "日常"; categoryName: string; colorKey: string; colorCustom?:boolean; note: string; startMinute: number; endMinute: number };
 
 function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; loadTimeline: (date: string) => Promise<boolean> }) {
   const [granularity, setGranularity] = useState<10 | 15 | 30>(15);
@@ -1562,16 +1563,16 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     const type = (['主线', '支线', '日常'].includes(task.type) ? task.type : '日常') as TimeBlockDraft['type'];
     const category = categoriesFor(type)[0], slot = taskSlot(minute, granularity);
     setSelectedTask(null);
-    setDraft({questId:task.id,blockDate:day,title: task.title, type, categoryName: category.name, colorKey: category.colorKey, note: task.detail, startMinute: slot.start, endMinute: slot.end});
+    setDraft({questId:task.id,blockDate:day,title: task.title, type, categoryName: category.name, colorKey: defaultTaskColor(type),colorCustom:false, note: task.detail, startMinute: slot.start, endMinute: slot.end});
   }
 
   function editBlock(block: TimeBlockRecord) {
-    setDraft({ id: block.id,questId:block.questId, blockDate:block.blockDate, title: block.title, type: block.type, categoryName: block.categoryName, colorKey: block.colorKey, note: block.note, startMinute: block.startMinute, endMinute: block.endMinute });
+    setDraft({ id: block.id,questId:block.questId, blockDate:block.blockDate, title: block.title, type: block.type, categoryName: block.categoryName, colorKey: block.colorKey,colorCustom:block.colorCustom, note: block.note, startMinute: block.startMinute, endMinute: block.endMinute });
   }
 
   function changeDraftType(type: "主线" | "支线" | "日常") {
     const first = categoriesFor(type)[0];
-    setDraft((current) => current ? { ...current, type, categoryName: first.name, colorKey: first.colorKey } : null);
+    setDraft((current) => current ? { ...current, type, categoryName: first.name, colorKey: current.colorCustom?current.colorKey:defaultTaskColor(type) } : null);
   }
 
   async function saveBlock() {
@@ -1618,7 +1619,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
       <section className="starlane-task-tray">
         <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '自动显示未完成任务。拖到轨道，或点选任务后点选时间；保存后对应任务自动完成。'}</p>
         <div className="starlane-exports"><button onClick={() => void loadTimeline(date)}>刷新任务</button></div>
-        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
+        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" style={taskTrayStyle(task.type) as CSSProperties} key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
       </section>
 
         <details className="flat-sidebar-details"><summary>分类与颜色设置</summary>
@@ -1626,7 +1627,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
         </details>
       </aside>
     </div>
-    {draft && <div className="time-block-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setDraft(null); }}><section className="time-block-editor" role="dialog" aria-modal="true" aria-labelledby="time-block-editor-title"><button className="editor-close" aria-label="关闭时间块编辑" onClick={() => setDraft(null)}>×</button><header><small>{draft.id ? "EDIT TIME BLOCK" : "NEW TIME BLOCK"}</small><h3 id="time-block-editor-title">{draft.id ? "编辑时间块" : "记录这段时间"}</h3><p>{draft.blockDate ?? date} · {minuteLabel(draft.startMinute)}–{minuteLabel(draft.endMinute)}</p></header><label className="block-title"><span>做了什么 / 准备做什么</span><input autoFocus maxLength={60} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：完成产品方案结构" /></label><fieldset><legend>所属模块</legend><div className="block-type-options">{(["主线", "支线", "日常"] as const).map((type) => <button type="button" key={type} className={draft.type === type ? `active type-${type}` : ""} onClick={() => changeDraftType(type)}>{type}</button>)}</div></fieldset><div className="block-time-fields"><label><span>开始</span><input type="time" step={granularity * 60} value={timeInputValue(draft.startMinute)} onChange={(event) => setDraft({ ...draft, startMinute: timeInputMinute(event.target.value) })} /></label><label><span>结束</span><input type="time" step={granularity * 60} value={timeInputValue(draft.endMinute)} onChange={(event) => setDraft({ ...draft, endMinute: timeInputMinute(event.target.value) })} /></label><em>{Math.max(0, draft.endMinute - draft.startMinute)} 分钟</em></div><label><span>细分分类</span><select value={draft.categoryName} onChange={(event) => { const category = categoriesFor(draft.type).find((item) => item.name === event.target.value); setDraft({ ...draft, categoryName: event.target.value, colorKey: category?.colorKey ?? draft.colorKey }); }}>{categoriesFor(draft.type).map((category) => <option key={category.name}>{category.name}</option>)}</select></label><fieldset><legend>色块颜色</legend><div className="block-color-options">{timeBlockColors.map((color) => <button type="button" key={color.key} title={color.label} aria-label={color.label} className={`${draft.colorKey === color.key ? "active " : ""}color-${color.key}`} onClick={() => setDraft({ ...draft, colorKey: color.key })}><i /></button>)}</div></fieldset><label><span>备注（可选）</span><textarea maxLength={180} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} placeholder="记录成果、状态或下一步" /></label><footer>{draft.id && <button className="delete" disabled={saving} onClick={() => void removeBlock(draft.id!)}>删除</button>}<button className="cancel" disabled={saving} onClick={() => setDraft(null)}>取消</button><button className="save" disabled={saving || !draft.title.trim() || draft.endMinute - draft.startMinute < 10} onClick={() => void saveBlock()}>{saving ? "保存中…" : "保存到时序"}</button></footer></section></div>}
+    {draft && <div className="time-block-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setDraft(null); }}><section className="time-block-editor" role="dialog" aria-modal="true" aria-labelledby="time-block-editor-title"><button className="editor-close" aria-label="关闭时间块编辑" onClick={() => setDraft(null)}>×</button><header><small>{draft.id ? "EDIT TIME BLOCK" : "NEW TIME BLOCK"}</small><h3 id="time-block-editor-title">{draft.id ? "编辑时间块" : "记录这段时间"}</h3><p>{draft.blockDate ?? date} · {minuteLabel(draft.startMinute)}–{minuteLabel(draft.endMinute)}</p></header><label className="block-title"><span>做了什么 / 准备做什么</span><input autoFocus maxLength={60} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：完成产品方案结构" /></label><fieldset><legend>所属模块</legend><div className="block-type-options">{(["主线", "支线", "日常"] as const).map((type) => <button type="button" key={type} className={draft.type === type ? `active type-${type}` : ""} onClick={() => changeDraftType(type)}>{type}</button>)}</div></fieldset><div className="block-time-fields"><label><span>开始</span><input type="time" step={granularity * 60} value={timeInputValue(draft.startMinute)} onChange={(event) => setDraft({ ...draft, startMinute: timeInputMinute(event.target.value) })} /></label><label><span>结束</span><input type="time" step={granularity * 60} value={timeInputValue(draft.endMinute)} onChange={(event) => setDraft({ ...draft, endMinute: timeInputMinute(event.target.value) })} /></label><em>{Math.max(0, draft.endMinute - draft.startMinute)} 分钟</em></div><label><span>细分分类</span><select value={draft.categoryName} onChange={(event) => { const category = categoriesFor(draft.type).find((item) => item.name === event.target.value); setDraft({ ...draft, categoryName: event.target.value, colorKey: draft.colorKey }); }}>{categoriesFor(draft.type).map((category) => <option key={category.name}>{category.name}</option>)}</select></label><fieldset><legend>色块颜色</legend><button type="button" className="sequence-reset-color" onClick={()=>setDraft({...draft,colorKey:defaultTaskColor(draft.type),colorCustom:false})}>恢复任务默认色</button><div className="block-color-options">{timeBlockColors.map((color) => <button type="button" key={color.key} title={color.label} aria-label={color.label} className={`${draft.colorKey === color.key ? "active " : ""}color-${color.key}`} onClick={() => setDraft({ ...draft, colorKey: color.key,colorCustom:true })}><i /></button>)}</div></fieldset><label><span>备注（可选）</span><textarea maxLength={180} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} placeholder="记录成果、状态或下一步" /></label><footer>{draft.id && <button className="delete" disabled={saving} onClick={() => void removeBlock(draft.id!)}>删除</button>}<button className="cancel" disabled={saving} onClick={() => setDraft(null)}>取消</button><button className="save" disabled={saving || !draft.title.trim() || draft.endMinute - draft.startMinute < 10} onClick={() => void saveBlock()}>{saving ? "保存中…" : "保存到时序"}</button></footer></section></div>}
   </section>;
 }
 

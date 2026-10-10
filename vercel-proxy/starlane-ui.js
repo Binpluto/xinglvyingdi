@@ -1,7 +1,8 @@
 import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
 import {createVerticalTimeline} from './starlane-timeline.mjs?v=8';
-import {sequenceBlocks} from './sequence-records.mjs?v=8';
+import {sequenceBlocks} from './sequence-records.mjs?v=10';
+import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -236,7 +237,7 @@ import {sequenceBlocks} from './sequence-records.mjs?v=8';
     selectedTask = null;
     const type = types.includes(task.type) ? task.type : '日常';
     const first = defaults[type][0];
-    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '',questId:task.id });
+    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: defaultTaskColor(type),colorCustom:false, note: '',questId:task.id });
     document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；保存后对应任务自动完成。'));
   }
   function renderTaskTray() {
@@ -249,6 +250,7 @@ import {sequenceBlocks} from './sequence-records.mjs?v=8';
     if (!tasks.length) list.append(el('p', '', '暂无未完成任务，可先到任务页添加。'));
     tasks.forEach(task => {
       const button = el('button', 'starlane-task-item'); button.draggable = true;
+      Object.entries(taskTrayStyle(task.type)).forEach(([key,value])=>button.style.setProperty(key,value));
       button.append(el('b', '', task.title), el('small', '', `${task.type} · ${task.dueAt ? task.dueAt.slice(0,10) : '未设日期'}`));
       button.ondragstart = event => { selectedTask = null; event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy'; };
       button.onclick = () => {
@@ -309,19 +311,20 @@ import {sequenceBlocks} from './sequence-records.mjs?v=8';
     const titleLabel = el("label"); titleLabel.append(el("span", "", "做了什么 / 准备做什么"), title);
     const typeRow = el("div", "starlane-compat-type-row");
     const category = el("select"), colorRow = el("div", "starlane-compat-color-row");
-    let currentType = block.type, currentColor = block.color;
+    let currentType = block.type, colorCustom=block.colorCustom===true, currentColor = colorCustom?block.color:defaultTaskColor(block.type);
     const fillCategories = () => { category.replaceChildren(); parseCategories(currentType).forEach((item) => { const option = el("option", "", item.name); option.value = item.name; category.append(option); }); category.value = block.category; if (!category.value) category.selectedIndex = 0; };
-    types.forEach((type) => { const button = el("button", type === currentType ? `active type-${type}` : "", type); button.onclick = () => { currentType = type; typeRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); fillCategories(); }; typeRow.append(button); });
+    types.forEach((type) => { const button = el("button", `${type === currentType ? 'active ' : ''}type-${type}`, type); button.onclick = () => { currentType = type; if(!colorCustom){currentColor=defaultTaskColor(type);colorRow.querySelectorAll('button[data-color]').forEach(b=>b.classList.toggle('active',b.dataset.color===currentColor));} typeRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); fillCategories(); }; typeRow.append(button); });
     fillCategories();
-    colors.forEach(([key, label]) => { const button = el("button", `${key === currentColor ? "active " : ""}color-${key}`); button.title = label; button.append(el("i")); button.onclick = () => { currentColor = key; colorRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); }; colorRow.append(button); });
+    colors.forEach(([key, label]) => { const button = el("button", `${key === currentColor ? "active " : ""}color-${key}`); button.dataset.color=key;button.title = label;button.setAttribute('aria-label',label); button.append(el("i")); button.onclick = () => { currentColor = key;colorCustom=true; colorRow.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); }; colorRow.append(button); });
+    const resetColor=el('button','sequence-reset-color','恢复任务默认色');resetColor.onclick=()=>{colorCustom=false;currentColor=defaultTaskColor(currentType);colorRow.querySelectorAll('button[data-color]').forEach(b=>b.classList.toggle('active',b.dataset.color===currentColor));};
     const start = el("input"); start.type = "time"; start.step = String(granularity * 60); start.value = inputTime(block.start);
     const end = el("input"); end.type = "time"; end.step = String(granularity * 60); end.value = inputTime(block.end);
     const times = el("div", "starlane-compat-time-row"); const startLabel = el("label"); startLabel.append(el("span", "", "开始"), start); const endLabel = el("label"); endLabel.append(el("span", "", "结束"), end); times.append(startLabel, endLabel);
     const categoryLabel = el("label"); categoryLabel.append(el("span", "", "细分分类"), category);
     const note = el("textarea"); note.placeholder = "记录成果、状态或下一步"; note.maxLength = 24; note.value = block.note || ""; const noteLabel = el("label"); noteLabel.append(el("span", "", "备注（可选）"), note);
     const footer = el("footer"); if (block.id) { const remove = el("button", "delete", "删除"); remove.onclick = async () => { try { await deleteBlock(block.id); backdrop.remove(); } catch (error) { notify(error.message); } }; footer.append(remove); }
-    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到时序"); save.onclick = async () => { save.disabled = true; try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false; } }; footer.append(cancel, save);
-    const typeField = el("fieldset"); typeField.append(el("legend", "", "所属模块"), typeRow); const colorField = el("fieldset"); colorField.append(el("legend", "", "色块颜色"), colorRow);
+    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到时序"); save.onclick = async () => { save.disabled = true; try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, colorCustom, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false; } }; footer.append(cancel, save);
+    const typeField = el("fieldset"); typeField.append(el("legend", "", "所属模块"), typeRow); const colorField = el("fieldset"); colorField.append(el("legend", "", "色块颜色"), colorRow,resetColor);
     dialog.append(close, header, titleLabel, typeField, times, categoryLabel, colorField, noteLabel, footer); backdrop.append(dialog); backdrop.onmousedown = (event) => { if (event.target === backdrop) backdrop.remove(); }; document.body.append(backdrop); title.focus();
   }
   let queued = false;

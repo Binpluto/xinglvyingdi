@@ -6,6 +6,7 @@ import { getPremiumProgram, updatePremiumFreeSlots } from "../../premium-access"
 import { validDate } from '../../../vercel-proxy/starlane-data.mjs';
 import {paidToolsAccess} from '../../paid-tools';
 import {PREMIUM_MESSAGE} from '../../../vercel-proxy/premium-policy.mjs';
+import {sequenceColor} from '../../../vercel-proxy/sequence-colors.mjs';
 
 type UserRow = {
   email: string;
@@ -1098,7 +1099,7 @@ async function timeTrackState(email: string, timelineDate: string, endDate = tim
       SELECT b.id, b.quest_id AS questId, b.block_date AS blockDate, b.start_minute AS startMinute,
         b.end_minute AS endMinute, COALESCE(q.title,b.title) AS title, COALESCE(q.type,b.type) AS type,
         CASE WHEN q.type != b.type THEN CASE q.type WHEN '主线' THEN '核心项目' WHEN '支线' THEN '创作' ELSE '生活整理' END ELSE b.category_name END AS categoryName,
-        CASE WHEN q.type != b.type THEN CASE q.type WHEN '主线' THEN 'gold' WHEN '支线' THEN 'violet' ELSE 'jade' END ELSE b.color_key END AS colorKey,
+        b.color_key AS colorKey,b.color_custom AS colorCustom,b.type AS storedType,
         b.note,b.created_at AS createdAt,b.updated_at AS updatedAt
       FROM time_blocks b LEFT JOIN quests q ON q.id=b.quest_id AND q.user_email=b.user_email
       WHERE b.user_email = ? AND b.block_date BETWEEN ? AND ?
@@ -1111,7 +1112,7 @@ async function timeTrackState(email: string, timelineDate: string, endDate = tim
       ORDER BY parent_type, id
     `).bind(email).all(),
   ]);
-  return { date: timelineDate, blocks: blocks.results, categories: categories.results };
+  return { date: timelineDate, blocks: blocks.results.map(b=>{const resolved=sequenceColor(b.type,b.storedType,b.colorKey,b.colorCustom);return {...b,colorKey:resolved.color,colorCustom:resolved.colorCustom};}), categories: categories.results };
 }
 
 async function dashboard(email: string, requestedClientDate?: string | null, requestedTimelineDate?: string | null) {
@@ -1414,6 +1415,7 @@ export async function POST(request: Request) {
       categoryName?: string;
       parentType?: string;
       colorKey?: string;
+      colorCustom?: boolean;
       note?: string;
     };
     const db = env.DB;
@@ -1434,7 +1436,9 @@ export async function POST(request: Request) {
       const title = (body.title ?? "").trim().replace(/\s+/g, " ").slice(0, 60);
       const type = ["主线", "支线", "日常"].includes(body.type ?? "") ? body.type! : "日常";
       const categoryName = (body.categoryName ?? "未分类").trim().replace(/\s+/g, " ").slice(0, 24) || "未分类";
-      const colorKey = timeBlockColorKeys.has(body.colorKey ?? "") ? body.colorKey! : "jade";
+      const incomingColor = timeBlockColorKeys.has(body.colorKey ?? "") ? body.colorKey! : "jade";
+      const resolvedColor=sequenceColor(type,type,incomingColor,body.colorCustom);
+      const colorKey=resolvedColor.color;
       const note = (body.note ?? "").trim().slice(0, 180);
       if (!title) return Response.json({ error: "请填写时间块名称" }, { status: 400 });
       if (endMinute - startMinute < 10) return Response.json({ error: "时间块至少需要 10 分钟" }, { status: 400 });
@@ -1465,6 +1469,7 @@ export async function POST(request: Request) {
           WHERE id = ? AND user_email = ?
         `).bind(blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note, blockId, identity.email).run();
       }
+      await db.prepare('UPDATE time_blocks SET color_custom=? WHERE id=? AND user_email=?').bind(resolvedColor.colorCustom?1:0,blockId,identity.email).run();
       const saved=await db.prepare('SELECT quest_id AS questId FROM time_blocks WHERE id=? AND user_email=?').bind(blockId,identity.email).first<{questId:number|null}>();
       let taskId=saved?.questId||body.questId;
       if(!taskId){
