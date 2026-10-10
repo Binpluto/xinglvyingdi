@@ -1,2 +1,2 @@
-import {installTravelerGuide} from './traveler-guide.mjs?v=8';
+import {installTravelerGuide} from './traveler-guide.mjs?v=9';
 installTravelerGuide();

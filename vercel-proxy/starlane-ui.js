@@ -175,7 +175,7 @@ import {sequenceBlocks} from './sequence-records.mjs?v=8';
     const nav = document.querySelector(".nav-stack");
     if(!nav)return;
     if(![...nav.querySelectorAll('.nav-item small')].some(item=>item.textContent==='时序'||item.textContent==='时轨')){
-      const button=el('button','nav-item starlane-nav');const icon=el('span','sequence-nav-icon');icon.innerHTML='<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M19 7a8.5 8.5 0 1 0 1.5 5"/><path d="M12 7v5l3 2"/><path d="M19 2v6M16 5h6" stroke="#b99244"/></svg>';button.append(icon,el('small','','时序'));
+      const button=el('button','nav-item starlane-nav');const icon=el('span','sequence-nav-icon');icon.innerHTML='<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M6 3h12M6 21h12M7 3v4c0 2 3 3 5 5-2 2-5 3-5 5v4M17 3v4c0 2-3 3-5 5 2 2 5 3 5 5v4"/><path d="m9 18 3-3 3 3" stroke="#b99244"/></svg>';button.append(icon,el('small','','时序'));
       nav.insertBefore(button,nav.children[2]||null);
     }
     mountPage();

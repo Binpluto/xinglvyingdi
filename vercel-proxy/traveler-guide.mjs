@@ -11,14 +11,52 @@ const sections=[
 ];
 const steps=[['欢迎来到星旅营地','先选一件今天最重要的事，再开始行动。你可以随时关闭介绍。'],['整理你的任务','主线是关键目标，支线是辅助成长，日常是习惯与生活。它们都能编辑、分类和删除。'],['用时序留下记录','把任务拖到时间轴，或手动记录。保存后对应任务自动完成，不用重复勾选。'],['了解收费范围','日历导入/同步和 CSV、ICS 导出需付费解锁。五个永久免费 VIP 名额除外，其余手动任务和时序记录免费。']];
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls;if(text)n.textContent=text;return n;};
+function mobileGuide(){
+  const section=el('section','guide-mobile');section.id='guide-mobile';
+  section.append(el('small','','MOBILE · 手机与平板'),el('h2','','手机移动端使用方法'),el('p','guide-mobile-intro','先在手机浏览器打开星旅营地，再按机型添加到桌面。添加桌面免费；它是网页 App 或桌面快捷方式，无需在应用商店下载。'));
+  const address=el('a','guide-mobile-url','https://starcamp-life-adventure.vercel.app');address.href='https://starcamp-life-adventure.vercel.app';address.target='_blank';address.rel='noopener noreferrer';section.append(address);
+  section.append(el('p','guide-mobile-tip','从微信或其他 App 内打开时，如果找不到安装入口，请复制链接到 Safari、Chrome 或华为浏览器再操作。'));
+  const phones=[
+    ['iPhone / iPad','Safari 浏览器',[
+      '在 Safari 中打开上方网址，点击“分享 / 共享”（方框向上箭头；部分版本先点页面菜单）。',
+      '在选项列表中找到“添加到主屏幕”。若没有，滑到列表底部进入“编辑操作”添加该选项。',
+      '如出现“作为网页 App 打开”，将其开启，再点“添加”。回到桌面，点击“星旅营地”。',
+    ]],
+    ['安卓手机','Chrome 浏览器 · 小米、OPPO、vivo、荣耀、三星等',[
+      '在 Chrome 中打开上方网址，点击右上角“⋮”菜单。',
+      '选择“安装并创建快捷方式”→“安装”，然后按提示确认。旧版本可能显示“安装应用”或“添加到主屏幕”。',
+      '如果没有安装选项，可选择“创建快捷方式”。回到桌面点击图标；快捷方式可能在浏览器中打开。',
+    ]],
+    ['华为 / 鸿蒙','华为浏览器',[
+      '使用华为浏览器打开上方网址。',
+      'HarmonyOS 5.0 及以上：点菜单“∷”→“添加至桌面”→确认。更早版本：菜单“∷”→“添加至”→“桌面”。',
+      '回到桌面点击“星旅营地”。部分机型创建的是网页快捷方式，点击后在浏览器中打开。',
+    ]],
+  ];
+  const grid=el('div','guide-mobile-grid');phones.forEach(([name,browser,steps])=>{const card=el('article','guide-mobile-card');card.append(el('h3','',name),el('small','',browser));const list=el('ol','');steps.forEach(text=>list.append(el('li','',text)));card.append(list);grid.append(card);});section.append(grid);
+  const tips=el('div','guide-mobile-usage');tips.append(el('h3','','添加后怎么用？'));
+  const list=el('ul','');[
+    '账号与记录：使用注册时的同一邮箱登录。若桌面版再次要求登录，重新登录即可；任务和记录保存在该邮箱对应的账户中。使用与云端同步需要联网。',
+    '手机记录时间：进入“时序”，先点待排任务，再点时间轴上的开始位置；也可直接点“手动填写”。点色块编辑，拖动调整时间；小屏建议先用日视图。保存记录后，对应任务自动完成。',
+    '导出文件：在“时序”点“导出日程”，选择日期范围和 CSV / ICS。下载后可在浏览器下载列表或手机文件管理中查找。导出与日历导入/同步属于付费功能，五个永久免费 VIP 名额除外。',
+    '提醒与声音：需要时允许浏览器通知，并检查手机音量。网页或桌面版运行时可提醒；被系统暂停或完全关闭后，不能保证准时通知。添加到桌面本身不会开启后台推送。',
+    '页面更新：看不到新功能时，先刷新网页，或关闭桌面版后重新打开。不要为了刷新而删除账户。',
+  ].forEach(text=>list.append(el('li','',text)));tips.append(list);section.append(tips);
+  section.append(el('p','guide-mobile-footnote','菜单名称和位置可能随系统、浏览器版本变化，以手机实际界面为准。'));
+  return section;
+}
 export function openTravelerGuide(){
   if(document.querySelector('.traveler-guide-page'))return;
   const page=el('section','traveler-guide-page');page.setAttribute('aria-label','旅人指南');
   const inner=el('div','traveler-guide-inner'),header=el('header','');
-  const back=el('button','guide-back','← 返回营地');back.onclick=()=>page.remove();
+  const back=el('button','guide-back','← 返回应用');back.onclick=()=>page.remove();
   header.append(back,el('small','','STARCAMP · 使用向导'),el('h1','','旅人指南'),el('p','','从第一步到长期成长，随时回来查看操作方法。'));inner.append(header);
   const notice=el('aside','guide-pay-note','收费说明：时序导出、日历导入与同步需要有效付费权益；五个永久免费 VIP 名额直接使用。不会因为关闭或跳过向导而扣费。');inner.append(notice);
-  const grid=el('div','guide-section-grid');sections.forEach(([name,title,body,badge],index)=>{const card=el('article','guide-section');card.append(el('small','',String(index+1).padStart(2,'0')+' · '+name),el('span','guide-badge',badge),el('h2','',title),el('p','',body));grid.append(card);});inner.append(grid);
+  const mobile=mobileGuide();
+  const shortcuts=el('nav','guide-shortcuts');shortcuts.setAttribute('aria-label','指南快捷入口');
+  const grid=el('div','guide-section-grid');
+  [['功能说明',grid],['手机移动端使用',mobile],['收费说明',notice]].forEach(([label,target])=>{const button=el('button','',label);button.onclick=()=>target.scrollIntoView({behavior:'smooth',block:'start'});shortcuts.append(button);});inner.append(shortcuts);
+  sections.forEach(([name,title,body,badge],index)=>{const card=el('article','guide-section');card.append(el('small','',String(index+1).padStart(2,'0')+' · '+name),el('span','guide-badge',badge),el('h2','',title),el('p','',body));grid.append(card);});inner.append(grid,mobile);
   inner.append(el('footer','','有疑问时，点击导航中的“指南”即可再次打开。手机桌面版也可从同一入口进入。'));page.append(inner);document.body.append(page);back.focus();
 }
 function openOnboarding(email){

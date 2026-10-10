@@ -836,7 +836,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
       <aside className="side-nav">
         <button className="brand-mark" aria-label="星旅营地">{activeRealm?.icon ?? "✧"}</button>
         <div className="nav-stack">
-          {nav.map(([label, icon]) => <button key={label} className={tab === label ? "nav-item active" : "nav-item"} onClick={() => setTab(label)}><span>{label === "时序" ? <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M19 7a8.5 8.5 0 1 0 1.5 5"/><path d="M12 7v5l3 2"/><path d="M19 2v6M16 5h6" stroke="#b99244"/></svg> : icon}</span><small>{label}</small></button>)}
+          {nav.map(([label, icon]) => <button key={label} className={tab === label ? "nav-item active" : "nav-item"} onClick={() => setTab(label)}><span>{label === "时序" ? <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M6 3h12M6 21h12M7 3v4c0 2 3 3 5 5-2 2-5 3-5 5v4M17 3v4c0 2-3 3-5 5 2 2 5 3 5 5v4"/><path d="m9 18 3-3 3 3" stroke="#b99244"/></svg> : icon}</span><small>{label}</small></button>)}
         </div>
         <button className="nav-item signout-link" onClick={() => void onLogout()}><span>↪</span><small>退出</small></button>
       </aside>
