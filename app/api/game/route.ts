@@ -31,6 +31,8 @@ const starterQuests = [
   ["风之小径", "户外散步 20 分钟", "日常", 25],
 ] as const;
 
+const timeBlockColorKeys = new Set(["jade", "gold", "azure", "coral", "violet", "rose", "amber", "slate"]);
+
 const dailySystemQuestPools = [
   {
     difficulty: "easy",
@@ -1086,14 +1088,37 @@ async function monthlyVoyageReview(email: string, clientDate: string) {
   };
 }
 
-async function dashboard(email: string, requestedClientDate?: string | null) {
+async function timeTrackState(email: string, timelineDate: string) {
+  const db = env.DB;
+  const [blocks, categories] = await Promise.all([
+    db.prepare(`
+      SELECT id, block_date AS blockDate, start_minute AS startMinute,
+        end_minute AS endMinute, title, type, category_name AS categoryName,
+        color_key AS colorKey, note, created_at AS createdAt, updated_at AS updatedAt
+      FROM time_blocks
+      WHERE user_email = ? AND block_date = ?
+      ORDER BY start_minute, end_minute, id
+    `).bind(email, timelineDate).all(),
+    db.prepare(`
+      SELECT id, parent_type AS parentType, name, color_key AS colorKey
+      FROM time_block_categories
+      WHERE user_email = ?
+      ORDER BY parent_type, id
+    `).bind(email).all(),
+  ]);
+  return { date: timelineDate, blocks: blocks.results, categories: categories.results };
+}
+
+async function dashboard(email: string, requestedClientDate?: string | null, requestedTimelineDate?: string | null) {
   const db = env.DB;
   const clientDate = validClientDate(requestedClientDate);
+  const timelineDate = validClientDate(requestedTimelineDate ?? clientDate);
   const dailyQuestCoach = await ensureDailySystemQuests(email, clientDate);
   await syncRealmUnlock(email);
   const habit = await habitState(email, clientDate, true);
   const weeklyReport = await weeklyVoyageReport(email, clientDate);
   const monthlyReview = await monthlyVoyageReview(email, clientDate);
+  const timeTrack = await timeTrackState(email, timelineDate);
   const sevenDayChallenge = await sevenDayChallengeState(email, clientDate);
   const dailyDeparture = await db.prepare(`
     SELECT departure_date AS departureDate, main_goal AS mainGoal,
@@ -1276,6 +1301,7 @@ async function dashboard(email: string, requestedClientDate?: string | null) {
     todayFocusMinutes: Number(todayFocus?.minutes ?? 0),
     weeklyReport,
     monthlyReview,
+    timeTrack,
     sevenDayChallenge,
     dailyQuestCoach,
     dailyDeparture: dailyDeparture ?? null,
@@ -1305,8 +1331,10 @@ export async function GET(request: Request) {
   try {
     const identity = await currentUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
-    const clientDate = new URL(request.url).searchParams.get("clientDate");
-    return Response.json(await dashboard(identity.email, clientDate));
+    const params = new URL(request.url).searchParams;
+    const clientDate = params.get("clientDate");
+    const timelineDate = params.get("timelineDate");
+    return Response.json(await dashboard(identity.email, clientDate, timelineDate));
   } catch (error) {
     console.error("Game dashboard failed", error);
     return Response.json({ error: error instanceof Error ? error.message : "读取失败" }, { status: 500 });
@@ -1358,10 +1386,83 @@ export async function POST(request: Request) {
       sceneId?: string;
       scenePace?: string;
       templateStartDate?: string;
+      timelineDate?: string;
+      blockId?: number;
+      blockDate?: string;
+      startMinute?: number;
+      endMinute?: number;
+      categoryId?: number;
+      categoryName?: string;
+      parentType?: string;
+      colorKey?: string;
+      note?: string;
     };
     const db = env.DB;
 
-    if (body.action === "saveMonthlyGoal") {
+    if (body.action === "createTimeBlock" || body.action === "updateTimeBlock") {
+      const blockDate = validClientDate(body.blockDate ?? body.timelineDate ?? body.clientDate);
+      const rawStartMinute = Number(body.startMinute);
+      const rawEndMinute = Number(body.endMinute);
+      if (!Number.isFinite(rawStartMinute) || !Number.isFinite(rawEndMinute)) {
+        return Response.json({ error: "开始或结束时间不正确" }, { status: 400 });
+      }
+      const startMinute = Math.max(0, Math.min(1430, Math.round(rawStartMinute)));
+      const endMinute = Math.max(10, Math.min(1440, Math.round(rawEndMinute)));
+      const title = (body.title ?? "").trim().replace(/\s+/g, " ").slice(0, 60);
+      const type = ["主线", "支线", "日常"].includes(body.type ?? "") ? body.type! : "日常";
+      const categoryName = (body.categoryName ?? "未分类").trim().replace(/\s+/g, " ").slice(0, 24) || "未分类";
+      const colorKey = timeBlockColorKeys.has(body.colorKey ?? "") ? body.colorKey! : "jade";
+      const note = (body.note ?? "").trim().slice(0, 180);
+      if (!title) return Response.json({ error: "请填写时间块名称" }, { status: 400 });
+      if (endMinute - startMinute < 10) return Response.json({ error: "时间块至少需要 10 分钟" }, { status: 400 });
+      const blockId = body.action === "updateTimeBlock" ? Number(body.blockId) : 0;
+      if (body.action === "updateTimeBlock" && (!Number.isSafeInteger(blockId) || blockId <= 0)) {
+        return Response.json({ error: "时间块不存在" }, { status: 404 });
+      }
+      const overlap = await db.prepare(`
+        SELECT id FROM time_blocks
+        WHERE user_email = ? AND block_date = ? AND id != ?
+          AND start_minute < ? AND end_minute > ?
+        LIMIT 1
+      `).bind(identity.email, blockDate, blockId, endMinute, startMinute).first();
+      if (overlap) return Response.json({ error: "这段时间已有安排，请调整开始或结束时间" }, { status: 409 });
+      if (body.action === "createTimeBlock") {
+        await db.prepare(`
+          INSERT INTO time_blocks
+            (user_email, block_date, start_minute, end_minute, title, type, category_name, color_key, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(identity.email, blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note).run();
+      } else {
+        const existing = await db.prepare("SELECT 1 FROM time_blocks WHERE id = ? AND user_email = ?")
+          .bind(blockId, identity.email).first();
+        if (!existing) return Response.json({ error: "时间块不存在" }, { status: 404 });
+        await db.prepare(`
+          UPDATE time_blocks SET block_date = ?, start_minute = ?, end_minute = ?,
+            title = ?, type = ?, category_name = ?, color_key = ?, note = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND user_email = ?
+        `).bind(blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note, blockId, identity.email).run();
+      }
+    } else if (body.action === "deleteTimeBlock") {
+      const blockId = Number(body.blockId);
+      const result = await db.prepare("DELETE FROM time_blocks WHERE id = ? AND user_email = ?")
+        .bind(blockId, identity.email).run();
+      if (!Number(result.meta.changes)) return Response.json({ error: "时间块不存在" }, { status: 404 });
+    } else if (body.action === "saveTimeCategory") {
+      const parentType = ["主线", "支线", "日常"].includes(body.parentType ?? "") ? body.parentType! : "日常";
+      const categoryName = (body.categoryName ?? "").trim().replace(/\s+/g, " ").slice(0, 24);
+      const colorKey = timeBlockColorKeys.has(body.colorKey ?? "") ? body.colorKey! : "jade";
+      if (categoryName.length < 2) return Response.json({ error: "细分分类至少需要 2 个字" }, { status: 400 });
+      await db.prepare(`
+        INSERT INTO time_block_categories (user_email, parent_type, name, color_key)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_email, parent_type, name) DO UPDATE SET color_key = excluded.color_key
+      `).bind(identity.email, parentType, categoryName, colorKey).run();
+    } else if (body.action === "deleteTimeCategory") {
+      const categoryId = Number(body.categoryId);
+      const result = await db.prepare("DELETE FROM time_block_categories WHERE id = ? AND user_email = ?")
+        .bind(categoryId, identity.email).run();
+      if (!Number(result.meta.changes)) return Response.json({ error: "细分分类不存在" }, { status: 404 });
+    } else if (body.action === "saveMonthlyGoal") {
       const clientDate = validClientDate(body.clientDate);
       const monthKey = clientDate.slice(0, 7);
       if (body.monthKey && body.monthKey !== monthKey) {
@@ -1907,7 +2008,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "未知操作" }, { status: 400 });
     }
 
-    return Response.json(await dashboard(identity.email, body.clientDate));
+    return Response.json(await dashboard(identity.email, body.clientDate, body.timelineDate));
   } catch (error) {
     console.error("Game action failed", error);
     if (error instanceof GoogleCalendarReconnectRequired) {

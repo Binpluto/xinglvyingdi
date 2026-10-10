@@ -104,6 +104,34 @@ export const monthlyGoals = sqliteTable("monthly_goals", {
   primaryKey({ columns: [table.userEmail, table.monthKey] }),
 ]);
 
+export const timeBlockCategories = sqliteTable("time_block_categories", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  parentType: text("parent_type").notNull(),
+  name: text("name").notNull(),
+  colorKey: text("color_key").notNull().default("jade"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("time_block_categories_user_type_name_idx").on(table.userEmail, table.parentType, table.name),
+]);
+
+export const timeBlocks = sqliteTable("time_blocks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
+  blockDate: text("block_date").notNull(),
+  startMinute: integer("start_minute").notNull(),
+  endMinute: integer("end_minute").notNull(),
+  title: text("title").notNull(),
+  type: text("type").notNull(),
+  categoryName: text("category_name").notNull().default("未分类"),
+  colorKey: text("color_key").notNull().default("jade"),
+  note: text("note").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("time_blocks_user_date_start_idx").on(table.userEmail, table.blockDate, table.startMinute),
+]);
+
 export const habitSettings = sqliteTable("habit_settings", {
   userEmail: text("user_email").primaryKey().references(() => users.email, { onDelete: "cascade" }),
   departureReminder: text("departure_reminder").default("08:30"),

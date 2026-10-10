@@ -595,6 +595,44 @@ test("analyzes completed main, side and daily quest shares by day, week and mont
   assert.match(styles, /\.quest-analysis-tabs/);
 });
 
+test("adds a draggable cloud-saved day timeline with custom categories and eight colors", async () => {
+  const [client, route, schema, migration, styles, proxy, proxyClient, proxyStyles] = await Promise.all([
+    readFile(new URL("app/GameClient.tsx", root), "utf8"),
+    readFile(new URL("app/api/game/route.ts", root), "utf8"),
+    readFile(new URL("db/schema.ts", root), "utf8"),
+    readFile(new URL("drizzle/0017_bent_donald_blake.sql", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("vercel-proxy/api/proxy.mjs", root), "utf8"),
+    readFile(new URL("vercel-proxy/starlane-ui.js", root), "utf8"),
+    readFile(new URL("vercel-proxy/starlane-ui.css", root), "utf8"),
+  ]);
+
+  assert.match(client, /STELLAR TIME MAP · 星轨时序/);
+  assert.match(client, /\[10, 15, 30\]/);
+  assert.match(client, /function beginCreate/);
+  assert.match(client, /function beginMove/);
+  assert.match(client, /function beginResize/);
+  assert.match(client, /手动填写/);
+  assert.match(client, /timeBlockColors/);
+  assert.match(client, /saveTimeCategory/);
+  assert.match(route, /async function timeTrackState/);
+  assert.match(route, /body\.action === "createTimeBlock"/);
+  assert.match(route, /body\.action === "updateTimeBlock"/);
+  assert.match(route, /body\.action === "deleteTimeBlock"/);
+  assert.match(route, /start_minute < \? AND end_minute > \?/);
+  assert.match(schema, /timeBlocks = sqliteTable\("time_blocks"/);
+  assert.match(schema, /timeBlockCategories = sqliteTable\("time_block_categories"/);
+  assert.match(migration, /CREATE TABLE `time_blocks`/);
+  assert.match(migration, /time_blocks_user_date_start_idx/);
+  assert.match(styles, /\.star-lane-page/);
+  assert.match(styles, /repeat\(7,minmax\(0,1fr\)\)/);
+  assert.match(proxy, /starlane-ui\.js/);
+  assert.match(proxy, /starlane-ui\.css/);
+  assert.match(proxyClient, /const BLOCK_PREFIX = "▥时轨\|"/);
+  assert.match(proxyClient, /bindCreateDrag/);
+  assert.match(proxyStyles, /\.starlane-compat-grid/);
+});
+
 test("supports secure batch selection and deletion of quests", async () => {
   const [client, css, route] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
