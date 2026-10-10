@@ -609,9 +609,6 @@ test("adds a draggable cloud-saved day timeline with custom categories and eight
 
   assert.match(client, /STELLAR TIME MAP · 星轨时序/);
   assert.match(client, /\[10, 15, 30\]/);
-  assert.match(client, /function beginCreate/);
-  assert.match(client, /function beginMove/);
-  assert.match(client, /function beginResize/);
   assert.match(client, /手动填写/);
   assert.match(client, /timeBlockColors/);
   assert.match(client, /saveTimeCategory/);
@@ -629,7 +626,7 @@ test("adds a draggable cloud-saved day timeline with custom categories and eight
   assert.match(proxy, /starlane-ui\.js/);
   assert.match(proxy, /starlane-ui\.css/);
   assert.match(proxyClient, /const BLOCK_PREFIX = "▥时轨\|"/);
-  assert.match(proxyClient, /bindCreateDrag/);
+  assert.match(proxyClient, /createDayBoard/);
   assert.match(proxyStyles, /\.starlane-compat-grid/);
 });
 

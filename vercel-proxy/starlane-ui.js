@@ -1,5 +1,6 @@
 import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
+import {createDayBoard,createWeekOverview} from './starlane-grid.mjs?v=6';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -188,7 +189,7 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
     const blocks = filterRange(parseBlocks(), range.start, range.end).sort((a, b) => a.date.localeCompare(b.date) || a.start-b.start);
     const header = el("header", "starlane-compat-header");
     const copy = el("div");
-    copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "拖拽空白轨道创建时间块；拖动色块调整时间，底部把手改变时长。"));
+    copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "全天平铺：拖选空格记录时间，拖动色格移动安排，点开编辑详情。"));
     const dateNav = el("div", "starlane-compat-date");
     const prev = el("button", "", "‹"); prev.setAttribute('aria-label',viewMode==='week'?'上一周':'前一天'); prev.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?-7:-1); renderPage(); };
     const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { if(!validDate(dateInput.value)){dateInput.value=selectedDate;notify('请选择有效日期，已保留当前日程');return;} selectedDate = dateInput.value; renderPage(); };
@@ -212,61 +213,23 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
     toolbar.append(steps, manual);
     const exportButton=el('button','',hasPaidTools(data)?'导出日程':'导出日程 · 付费'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
-    const timelinePanel = el("section", "starlane-compat-timeline-panel");
-    timelinePanel.append(el("div", "starlane-compat-legend", viewMode==='week' ? `${range.start} — ${range.end} · 周一至周日（手机可左右滑动）` : "拖拽空白区域，快速记录一段时间"));
-    const scroll = el("div", "starlane-compat-scroll");
-    const slotHeight = 18, height = 1440 / granularity * slotHeight;
-    const labels = el("div", "starlane-compat-hours"); labels.style.height = `${height}px`;
-    for (let hour = 0; hour <= 24; hour += 1) { const label = el("span", "", `${String(hour).padStart(2, "0")}:00`); label.style.top = `${hour / 24 * height}px`; labels.append(label); }
-    const days=viewMode==='week'?Array.from({length:7},(_,i)=>shiftCalendarDate(range.start,i)):[selectedDate];
-    const lanes=el('div',viewMode==='week'?'starlane-week-lanes':'starlane-day-lanes');
-    if(viewMode==='week') scroll.classList.add('starlane-week-scroll');
-    days.forEach(day=>{
-      const column=el('div','starlane-day-column');
-      if(viewMode==='week'){
-        const heading=el('button','starlane-day-heading',`${['周日','周一','周二','周三','周四','周五','周六'][new Date(day+'T12:00:00Z').getUTCDay()]} ${day.slice(5)}`);
-        heading.onclick=()=>{selectedDate=day;viewMode='day';renderPage();}; column.append(heading);
-      }
-      const grid = el("div", "starlane-compat-grid"); grid.dataset.date=day;
-      grid.setAttribute('aria-label',day+' 时间轴');
-      grid.style.height = `${height}px`; grid.style.setProperty("--slot-height", `${slotHeight}px`);
-      grid.ondragover = event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } };
-      grid.ondrop = event => {
-        event.preventDefault();
-        const task = availableTasks(data.quests || []).find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task')));
-        if (task) placeTask(task, minuteAt(event, grid, slotHeight), day);
-      };
-      if (day === localDateKey(new Date())) { const line = el("i", "starlane-compat-now"); line.style.top = `${(new Date().getHours() * 60 + new Date().getMinutes()) / granularity * slotHeight}px`; grid.append(line); }
-      blocks.filter(b=>b.date===day).forEach(block=>grid.append(renderBlock(block,slotHeight)));
-      bindCreateDrag(grid, slotHeight, day); column.append(grid); lanes.append(column);
-    });
-    scroll.append(labels, lanes); timelinePanel.append(scroll);
+    const timelinePanel=el('div','flat-timeline-panel');
+    const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[]).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
+    timelinePanel.append(viewMode==='week'
+      ? createWeekOverview({date:selectedDate,blocks,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},onTask})
+      : createDayBoard({date:selectedDate,step:granularity,blocks,
+          onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:'核心项目',color:'gold',note:''});},
+          onEdit:block=>openEditor({...block}),
+          onMove:async block=>{try{await saveBlock(block);}catch(error){notify(error.message);renderPage();}},
+          onTask
+        }));
     const sidebar = el('div', 'starlane-task-sidebar');
-    sidebar.append(renderTaskTray(), renderCategories());
+    const categoryDetails=el('details','flat-sidebar-details');categoryDetails.append(el('summary','','分类与颜色设置'),renderCategories());
+    sidebar.append(renderTaskTray(), categoryDetails);
     layout.append(timelinePanel, sidebar);
     scrollPositions.clear();
     pageElement.replaceChildren(header, summary, toolbar, layout);
     mountPage();
-    requestAnimationFrame(() => { scroll.scrollTop = Math.max(0, 360 / granularity * slotHeight - 20); });
-  }
-  function minuteAt(event, grid, slotHeight) {
-    const rect = grid.getBoundingClientRect();
-    return Math.max(0, Math.min(1440, Math.round(((event.clientY - rect.top) / slotHeight)) * granularity));
-  }
-  function bindCreateDrag(grid, slotHeight, day = selectedDate) {
-    grid.onpointerdown = (event) => {
-      if (event.target.closest(".starlane-compat-block")) return;
-      const start = minuteAt(event, grid, slotHeight);
-      if (selectedTask) { placeTask(selectedTask, start, day); return; }
-      const preview = el("div", "starlane-compat-preview"); grid.append(preview);
-      let from = start, to = Math.min(1440, start + granularity);
-      const draw = () => { preview.style.top = `${from / granularity * slotHeight + 1}px`; preview.style.height = `${Math.max(22, (to - from) / granularity * slotHeight - 2)}px`; preview.textContent = `${minuteLabel(from)}–${minuteLabel(to)}`; };
-      draw();
-      const move = (pointer) => { const minute = minuteAt(pointer, grid, slotHeight); from = Math.min(start, minute); to = Math.min(1440, Math.max(start + granularity, minute + granularity)); draw(); };
-      const cancel = () => {window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',cancel);preview.remove();};
-      const up = () => { cancel(); openEditor({ date: day, start: from, end: to, title: "", type: "主线", category: "核心项目", color: "gold", note: "" }); };
-      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });window.addEventListener('pointercancel',cancel,{once:true});
-    };
   }
   function placeTask(task, minute, day = selectedDate) {
     selectedTask = null;
@@ -290,36 +253,11 @@ import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
       button.onclick = () => {
         selectedTask = task;
         tray.querySelector('.starlane-task-hint').textContent = `已选「${task.title}」，请点击轨道的开始时间。`;
-        document.querySelector('.starlane-compat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
+        document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
       };
       list.append(button);
     });
     tray.append(list); return tray;
-  }
-  function renderBlock(block, slotHeight) {
-    const article = el("article", `starlane-compat-block color-${block.color}`);
-    article.style.top = `${block.start / granularity * slotHeight + 1}px`; article.style.height = `${Math.max(25, (block.end - block.start) / granularity * slotHeight - 2)}px`;
-    const edit = el("button", "", ""); edit.append(el("span", "", `${minuteLabel(block.start)}–${minuteLabel(block.end)}`), el("b", "", block.title), el("small", "", `${block.type} · ${block.category}`));
-    edit.onclick = (event) => { event.stopPropagation(); openEditor({ ...block }); };
-    const grip = el("u", "drag", "⋮⋮");
-    const resize = el("i");
-    article.append(grip, edit, resize);
-    article.onpointerdown = (event) => {
-      if (event.target !== grip) return;
-      event.stopPropagation();
-      const originY = event.clientY, duration = block.end - block.start; let nextStart = block.start;
-      const move = (pointer) => { const delta = Math.round((pointer.clientY - originY) / slotHeight) * granularity; nextStart = Math.max(0, Math.min(1440 - duration, block.start + delta)); article.style.top = `${nextStart / granularity * slotHeight + 1}px`; };
-      const up = async () => { window.removeEventListener("pointermove", move); if (nextStart !== block.start) { try { await saveBlock({ ...block, start: nextStart, end: nextStart + duration }); } catch (error) { notify(error.message); renderPage(); } } };
-      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });
-    };
-    resize.onpointerdown = (event) => {
-      event.stopPropagation(); let nextEnd = block.end;
-      const grid = article.parentElement;
-      const move = (pointer) => { nextEnd = Math.max(block.start + granularity, minuteAt(pointer, grid, slotHeight)); article.style.height = `${Math.max(25, (nextEnd - block.start) / granularity * slotHeight - 2)}px`; };
-      const up = async () => { window.removeEventListener("pointermove", move); if (nextEnd !== block.end) { try { await saveBlock({ ...block, end: nextEnd }); } catch (error) { notify(error.message); renderPage(); } } };
-      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });
-    };
-    return article;
   }
   function renderCategories() {
     const panel = el("aside", "starlane-compat-categories");

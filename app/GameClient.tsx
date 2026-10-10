@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { availableTasks, taskSlot, dateRange, validDate } from '../vercel-proxy/starlane-data.mjs';
-import {StarWeekView, TimeRangeExport, fetchTimeRange} from './TimeTrackViews';
+import {StarFlatView, TimeRangeExport, fetchTimeRange} from './TimeTrackViews';
 import '../vercel-proxy/starlane-addons.css';
 import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
 
@@ -1527,12 +1527,10 @@ function shiftLocalDate(date: string, days: number) {
 }
 
 type TimeBlockDraft = { id?: number; blockDate?: string; title: string; type: "主线" | "支线" | "日常"; categoryName: string; colorKey: string; note: string; startMinute: number; endMinute: number };
-type TimeDragState = { mode: "create" | "move" | "resize"; originY: number; startMinute: number; endMinute: number; currentStart: number; currentEnd: number; block?: TimeBlockRecord };
 
 function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record<string, unknown>, s: string) => Promise<boolean>; loadTimeline: (date: string) => Promise<boolean> }) {
   const [granularity, setGranularity] = useState<10 | 15 | 30>(15);
   const [draft, setDraft] = useState<TimeBlockDraft | null>(null);
-  const [drag, setDrag] = useState<TimeDragState | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Quest | null>(null);
   const [viewMode,setViewMode]=useState<'day'|'week'>('day');
@@ -1542,12 +1540,8 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
   const [newCategory, setNewCategory] = useState("");
   const [categoryType, setCategoryType] = useState<"主线" | "支线" | "日常">("主线");
   const [categoryColor, setCategoryColor] = useState("gold");
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const slotHeight = 18;
   const date = data.timeTrack.date;
   const blocks = data.timeTrack.blocks;
-  const totalHeight = 1440 / granularity * slotHeight;
   const today = localDateKey(new Date());
   useEffect(()=>{
     if(viewMode!=='week')return;
@@ -1561,71 +1555,11 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     ...data.timeTrack.categories.filter((category) => category.parentType === type),
   ];
 
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, 6 * 60 / granularity * slotHeight - 20);
-  }, [date, granularity]);
-
-  const snapMinute = (minute: number) => Math.max(0, Math.min(1440, Math.round(minute / granularity) * granularity));
-  const minuteFromPointer = (clientY: number) => {
-    const rect = timelineRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    return snapMinute((clientY - rect.top) / slotHeight * granularity);
-  };
-
-  useEffect(() => {
-    if (!drag) return;
-    const move = (event: PointerEvent) => {
-      if (drag.mode === "create") {
-        const minute = minuteFromPointer(event.clientY);
-        setDrag((current) => current ? { ...current, currentStart: Math.min(current.startMinute, minute), currentEnd: Math.max(current.startMinute + granularity, minute + granularity) } : null);
-      } else if (drag.mode === "move") {
-        const rawDelta = Math.round((event.clientY - drag.originY) / slotHeight) * granularity;
-        const duration = drag.endMinute - drag.startMinute;
-        const nextStart = Math.max(0, Math.min(1440 - duration, drag.startMinute + rawDelta));
-        setDrag((current) => current ? { ...current, currentStart: nextStart, currentEnd: nextStart + duration } : null);
-      } else {
-        const nextEnd = Math.max(drag.startMinute + granularity, minuteFromPointer(event.clientY));
-        setDrag((current) => current ? { ...current, currentEnd: nextEnd } : null);
-      }
-    };
-    const up = () => {
-      if (drag.mode === "create") {
-        setDraft({ title: "", type: "主线", categoryName: "核心项目", colorKey: "gold", note: "", startMinute: drag.currentStart, endMinute: Math.min(1440, drag.currentEnd) });
-      } else if (drag.block && (drag.currentStart !== drag.block.startMinute || drag.currentEnd !== drag.block.endMinute)) {
-        void act({ action: "updateTimeBlock", blockId: drag.block.id, blockDate: date, timelineDate: date, startMinute: drag.currentStart, endMinute: drag.currentEnd, title: drag.block.title, type: drag.block.type, categoryName: drag.block.categoryName, colorKey: drag.block.colorKey, note: drag.block.note }, "时间块已沿星轨移动");
-      }
-      setDrag(null);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-  }, [drag, granularity, date]);
-
-  function beginCreate(event: ReactPointerEvent<HTMLDivElement>) {
-    if ((event.target as HTMLElement).closest(".star-time-block")) return;
-    const startMinute = minuteFromPointer(event.clientY);
-    if (selectedTask) { placeTask(selectedTask, startMinute); return; }
-    setDrag({ mode: "create", originY: event.clientY, startMinute, endMinute: startMinute + granularity, currentStart: startMinute, currentEnd: startMinute + granularity });
-  }
-
   function placeTask(task: Quest, minute: number, day = date) {
     const type = (['主线', '支线', '日常'].includes(task.type) ? task.type : '日常') as TimeBlockDraft['type'];
     const category = categoriesFor(type)[0], slot = taskSlot(minute, granularity);
     setSelectedTask(null);
     setDraft({blockDate:day,title: task.title, type, categoryName: category.name, colorKey: category.colorKey, note: task.detail, startMinute: slot.start, endMinute: slot.end});
-  }
-
-  function beginMove(event: ReactPointerEvent, block: TimeBlockRecord) {
-    event.stopPropagation();
-    setDrag({ mode: "move", originY: event.clientY, startMinute: block.startMinute, endMinute: block.endMinute, currentStart: block.startMinute, currentEnd: block.endMinute, block });
-  }
-
-  function beginResize(event: ReactPointerEvent, block: TimeBlockRecord) {
-    event.stopPropagation();
-    setDrag({ mode: "resize", originY: event.clientY, startMinute: block.startMinute, endMinute: block.endMinute, currentStart: block.startMinute, currentEnd: block.endMinute, block });
   }
 
   function editBlock(block: TimeBlockRecord) {
@@ -1668,34 +1602,25 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
 
   const visibleBlocks=viewMode==='week'?weekBlocks:blocks;
   const totals = (["主线", "支线", "日常"] as const).map((type) => ({ type, minutes: visibleBlocks.filter((block) => block.type === type).reduce((total, block) => total + block.endMinute - block.startMinute, 0) }));
-  const preview = drag ? { startMinute: drag.currentStart, endMinute: drag.currentEnd } : null;
-  const currentMinute = new Date().getHours() * 60 + new Date().getMinutes();
 
   return <section className="star-lane-page">
     <div className="star-lane-toolbar"><div className="starlane-view-switch"><button aria-pressed={viewMode==='day'} className={viewMode==='day'?'active':''} onClick={()=>setViewMode('day')}>日视图</button><button aria-pressed={viewMode==='week'} className={viewMode==='week'?'active':''} onClick={()=>setViewMode('week')}>周视图</button></div><button onClick={()=>setExportOpen(true)}>导出日程</button></div>
     {exportOpen&&<TimeRangeExport date={date} onClose={()=>setExportOpen(false)}/>}
-    <header className="star-lane-header"><div><small>STELLAR TIME MAP · 星轨时序</small><h2>把一天，铺成看得见的星轨</h2><p>拖拽空白轨道创建时间块；拖动色块调整时间，底部把手改变时长。</p></div><div className="star-lane-date"><button aria-label="前一天" onClick={() => void changeDate(shiftLocalDate(date, viewMode==='week'?-7:-1))}>‹</button><label><span>{new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { weekday: "long" })}</span><input type="date" value={date} onChange={(event) => void changeDate(event.target.value)} /></label><button aria-label="后一天" onClick={() => void changeDate(shiftLocalDate(date, viewMode==='week'?7:1))}>›</button><button className="today" disabled={date === today} onClick={() => void changeDate(today)}>今天</button></div></header>
+    <header className="star-lane-header"><div><small>STELLAR TIME MAP · 星轨时序</small><h2>把一天，铺成看得见的星轨</h2><p>全天平铺：拖选空格记录时间，拖动色格移动安排，点开编辑详情。</p></div><div className="star-lane-date"><button aria-label="前一天" onClick={() => void changeDate(shiftLocalDate(date, viewMode==='week'?-7:-1))}>‹</button><label><span>{new Date(`${date}T12:00:00`).toLocaleDateString("zh-CN", { weekday: "long" })}</span><input type="date" value={date} onChange={(event) => void changeDate(event.target.value)} /></label><button aria-label="后一天" onClick={() => void changeDate(shiftLocalDate(date, viewMode==='week'?7:1))}>›</button><button className="today" disabled={date === today} onClick={() => void changeDate(today)}>今天</button></div></header>
     <div className="star-lane-summary">{totals.map((item) => <div key={item.type} className={`summary-${item.type}`}><span>{item.type}</span><b>{Math.floor(item.minutes / 60)}<small>h</small> {item.minutes % 60}<small>m</small></b></div>)}<div className="summary-total"><span>已记录</span><b>{visibleBlocks.reduce((total, block) => total + block.endMinute - block.startMinute, 0)}<small> min</small></b></div></div>
     <div className="star-lane-toolbar"><div><span>时间刻度</span>{([10, 15, 30] as const).map((minute) => <button key={minute} className={granularity === minute ? "active" : ""} onClick={() => setGranularity(minute)}>{minute} min</button>)}</div><button className="manual-block" onClick={() => setDraft({ title: "", type: "主线", categoryName: "核心项目", colorKey: "gold", note: "", startMinute: 9 * 60, endMinute: 10 * 60 })}>＋ 手动填写</button></div>
     <div className="star-lane-layout">
-      <section className="starlane-task-tray" style={{gridColumn:'1 / -1'}}>
+   {viewMode==='week' && weekStatus ? <p role="status">{weekStatus}</p> : <StarFlatView date={date} step={granularity} mode={viewMode} blocks={visibleBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:'核心项目',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id&&!q.done);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date},'时间块已更新')} onDay={day=>{setViewMode('day');void changeDate(day);}} />}
+      <aside className="star-lane-sidebar">
+      <section className="starlane-task-tray">
         <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '自动显示未完成任务。拖到轨道，或点选任务后点选时间；不会自动完成原任务。'}</p>
         <div className="starlane-exports"><button onClick={() => void loadTimeline(date)}>刷新任务</button></div>
-        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); scrollRef.current?.scrollIntoView({behavior:'smooth',block:'center'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
+        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
       </section>
-      {viewMode==='week' && (weekStatus ? <p role="status">{weekStatus}</p> : <StarWeekView date={date} step={granularity} blocks={weekBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:'核心项目',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id&&!q.done);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date},'时间块已更新')} onDay={day=>{setViewMode('day');void changeDate(day);}} />)}
-      {viewMode==='day' && <div className="star-timeline-shell"><div className="timeline-legend"><span>00:00</span><b>拖拽填充今日时间</b><span>24:00</span></div><div className="star-timeline-scroll" ref={scrollRef}><div className="star-hour-labels" style={{ height: totalHeight }}>{Array.from({ length: 25 }, (_, hour) => <span key={hour} style={{ top: hour / 24 * totalHeight }}>{String(hour).padStart(2, "0")}:00</span>)}</div><div className="star-timeline" ref={timelineRef} onDragOver={event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) event.preventDefault(); }} onDrop={event => { event.preventDefault(); const task = data.quests.find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task'))); if (task && !task.done) placeTask(task, minuteFromPointer(event.clientY)); }} onPointerDown={beginCreate} style={{ height: totalHeight, "--slot-height": `${slotHeight}px` } as CSSProperties} role="grid" aria-label={`${date} 的 24 小时时间轨道，当前刻度 ${granularity} 分钟`}>
-        {date === today && <i className="star-now-line" style={{ top: currentMinute / granularity * slotHeight }}><span>现在</span></i>}
-        {blocks.map((block) => {
-          const activeDrag = drag?.block?.id === block.id;
-          const startMinute = activeDrag ? drag.currentStart : block.startMinute;
-          const endMinute = activeDrag ? drag.currentEnd : block.endMinute;
-          return <article key={block.id} className={`star-time-block color-${block.colorKey}${activeDrag ? " dragging" : ""}`} style={{ top: startMinute / granularity * slotHeight + 1, height: Math.max(24, (endMinute - startMinute) / granularity * slotHeight - 2) }} onDoubleClick={() => editBlock(block)}><u className="star-block-drag" aria-label="拖动调整开始时间" onPointerDown={(event) => beginMove(event, block)}>⋮⋮</u><button aria-label={`编辑 ${block.title}`} onPointerDown={(event) => event.stopPropagation()} onClick={() => editBlock(block)}><span>{minuteLabel(startMinute)}–{minuteLabel(endMinute)}</span><b>{block.title}</b><small>{block.type} · {block.categoryName}</small></button><i aria-label="拖动调整结束时间" onPointerDown={(event) => beginResize(event, block)} /></article>;
-        })}
-        {preview && <div className="star-time-preview" style={{ top: preview.startMinute / granularity * slotHeight + 1, height: Math.max(22, (preview.endMinute - preview.startMinute) / granularity * slotHeight - 2) }}><span>{minuteLabel(preview.startMinute)}–{minuteLabel(preview.endMinute)}</span></div>}
-      </div></div></div>}
-      <aside className="star-lane-sidebar">
+
+        <details className="flat-sidebar-details"><summary>分类与颜色设置</summary>
         <section className="star-category-panel"><header><div><small>TIME CATEGORIES</small><h3>时间分类</h3></div><span>8 色</span></header>{(["主线", "支线", "日常"] as const).map((type) => <div className="star-category-group" key={type}><b>{type}</b><div>{categoriesFor(type).map((category) => { const saved = data.timeTrack.categories.find((item) => item.parentType === type && item.name === category.name); return <span key={`${type}-${category.name}`} className={`color-${category.colorKey}`}><i />{category.name}{saved && <button aria-label={`删除分类 ${category.name}`} onClick={() => void act({ action: "deleteTimeCategory", categoryId: saved.id, timelineDate: date }, "细分分类已删除")}>×</button>}</span>})}</div></div>)}<div className="star-category-create"><select value={categoryType} onChange={(event) => setCategoryType(event.target.value as "主线" | "支线" | "日常")}><option>主线</option><option>支线</option><option>日常</option></select><input value={newCategory} maxLength={24} onChange={(event) => setNewCategory(event.target.value)} placeholder="新增细分分类" /><div className="star-mini-colors">{timeBlockColors.map((color) => <button key={color.key} aria-label={color.label} className={`${categoryColor === color.key ? "active " : ""}color-${color.key}`} onClick={() => setCategoryColor(color.key)} />)}</div><button className="save-category" disabled={newCategory.trim().length < 2 || saving} onClick={() => void addCategory()}>保存分类</button></div></section>
+        </details>
       </aside>
     </div>
     {draft && <div className="time-block-editor-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target && !saving) setDraft(null); }}><section className="time-block-editor" role="dialog" aria-modal="true" aria-labelledby="time-block-editor-title"><button className="editor-close" aria-label="关闭时间块编辑" onClick={() => setDraft(null)}>×</button><header><small>{draft.id ? "EDIT TIME BLOCK" : "NEW TIME BLOCK"}</small><h3 id="time-block-editor-title">{draft.id ? "编辑时间块" : "记录这段时间"}</h3><p>{draft.blockDate ?? date} · {minuteLabel(draft.startMinute)}–{minuteLabel(draft.endMinute)}</p></header><label className="block-title"><span>做了什么 / 准备做什么</span><input autoFocus maxLength={60} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="例如：完成产品方案结构" /></label><fieldset><legend>所属模块</legend><div className="block-type-options">{(["主线", "支线", "日常"] as const).map((type) => <button type="button" key={type} className={draft.type === type ? `active type-${type}` : ""} onClick={() => changeDraftType(type)}>{type}</button>)}</div></fieldset><div className="block-time-fields"><label><span>开始</span><input type="time" step={granularity * 60} value={timeInputValue(draft.startMinute)} onChange={(event) => setDraft({ ...draft, startMinute: timeInputMinute(event.target.value) })} /></label><label><span>结束</span><input type="time" step={granularity * 60} value={timeInputValue(draft.endMinute)} onChange={(event) => setDraft({ ...draft, endMinute: timeInputMinute(event.target.value) })} /></label><em>{Math.max(0, draft.endMinute - draft.startMinute)} 分钟</em></div><label><span>细分分类</span><select value={draft.categoryName} onChange={(event) => { const category = categoriesFor(draft.type).find((item) => item.name === event.target.value); setDraft({ ...draft, categoryName: event.target.value, colorKey: category?.colorKey ?? draft.colorKey }); }}>{categoriesFor(draft.type).map((category) => <option key={category.name}>{category.name}</option>)}</select></label><fieldset><legend>色块颜色</legend><div className="block-color-options">{timeBlockColors.map((color) => <button type="button" key={color.key} title={color.label} aria-label={color.label} className={`${draft.colorKey === color.key ? "active " : ""}color-${color.key}`} onClick={() => setDraft({ ...draft, colorKey: color.key })}><i /></button>)}</div></fieldset><label><span>备注（可选）</span><textarea maxLength={180} value={draft.note} onChange={(event) => setDraft({ ...draft, note: event.target.value })} placeholder="记录成果、状态或下一步" /></label><footer>{draft.id && <button className="delete" disabled={saving} onClick={() => void removeBlock(draft.id!)}>删除</button>}<button className="cancel" disabled={saving} onClick={() => setDraft(null)}>取消</button><button className="save" disabled={saving || !draft.title.trim() || draft.endMinute - draft.startMinute < 10} onClick={() => void saveBlock()}>{saving ? "保存中…" : "保存到星轨"}</button></footer></section></div>}
