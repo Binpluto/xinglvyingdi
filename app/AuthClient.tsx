@@ -38,6 +38,7 @@ export default function AuthClient() {
         return;
       }
       setUser(data.user);
+      if(mode==='register')sessionStorage.setItem('starcamp:new-user-guide',data.user.email);
       setPassword("");
     } catch {
       setError("无法连接云端，请检查网络后重试");

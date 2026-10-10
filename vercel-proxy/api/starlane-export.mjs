@@ -1,5 +1,6 @@
 import {hasPaidTools, PREMIUM_MESSAGE} from '../premium-policy.mjs';
 import {validDate, filterRange, exportTimeline} from '../starlane-data.mjs';
+import {sequenceBlocks} from '../sequence-records.mjs';
 
 export default async function handler(req,res) {
   res.setHeader('Cache-Control','private, no-store');
@@ -14,9 +15,7 @@ export default async function handler(req,res) {
     if(!upstream.ok)throw new Error('membership unavailable');
     const data=await upstream.json();
     if(!hasPaidTools(data)){res.statusCode=403;return res.json({error:PREMIUM_MESSAGE,code:'premium_required'});}
-    const blocks=(data.quests||[]).filter(q=>q.title.startsWith('▥时轨|')).flatMap(q=>{
-      try{const [,date,s,e]=q.title.split('|'),b=JSON.parse(q.detail);return [{id:q.id,date,start:Number(s),end:Number(e),title:b.t,type:b.m,category:b.c,color:b.k,note:b.n||''}];}catch{return [];}
-    });
+    const blocks=sequenceBlocks(data.quests||[]);
     const rows=filterRange(blocks,start,end);
     if(!rows.length){res.statusCode=400;return res.json({error:'所选范围暂无时间块'});}
     res.setHeader('Content-Type',format==='csv'?'text/csv; charset=utf-8':'text/calendar; charset=utf-8');

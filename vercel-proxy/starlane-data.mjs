@@ -69,7 +69,7 @@ export function exportTimeline(blocks, format, now = new Date()) {
     ].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
   }
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Starcamp//Time Journal//ZH','CALSCALE:GREGORIAN', 'X-WR-CALNAME:星轨时序'];
+  const lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Starcamp//Time Journal//ZH','CALSCALE:GREGORIAN', 'X-WR-CALNAME:时序'];
   for (const b of rows) lines.push('BEGIN:VEVENT', `UID:starcamp-${b.id}-${b.date}@starcamp.lifeadventure`, `DTSTAMP:${stamp}`,
     `DTSTART:${localStamp(b.date,b.start)}`, `DTEND:${localStamp(b.date,b.end)}`, `SUMMARY:${escapeICS(b.title)}`,
     `CATEGORIES:${escapeICS(b.type)},${escapeICS(b.category)}`, `DESCRIPTION:${escapeICS(b.note)}`, 'END:VEVENT');
@@ -78,12 +78,12 @@ export function exportTimeline(blocks, format, now = new Date()) {
 export function downloadTimeline(blocks, format, date) {
   const blob = new Blob([exportTimeline(blocks, format)], {type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/calendar;charset=utf-8'});
   const url = URL.createObjectURL(blob), link = document.createElement('a');
-  link.href = url; link.download = `星轨时序-${date}.${format}`; document.body.append(link); link.click(); link.remove();
+  link.href = url; link.download = `时序-${date}.${format}`; document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 export async function downloadAuthorizedTimeline(start,end,format) {
   const response=await fetch(`/api/starlane-export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&format=${format}`,{credentials:'same-origin',cache:'no-store'});
   if(!response.ok){const error=await response.json();throw new Error(error.error||'导出失败');}
   const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
-  link.href=url;link.download=`星轨时序-${start}_${end}.${format}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  link.href=url;link.download=`时序-${start}_${end}.${format}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
 }

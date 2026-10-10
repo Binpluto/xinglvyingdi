@@ -4,7 +4,7 @@ const label=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padSt
 const colors={jade:'#3f8d7a',gold:'#d09c3f',azure:'#4e86bd',coral:'#d97862',violet:'#8068b2',rose:'#bd6588',amber:'#bf7637',slate:'#607680'};
 const el=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls;if(text!==undefined)node.textContent=text;return node;};
 export function minuteAtRatio(ratio,step){return Math.max(0,Math.min(1440-step,Math.round(ratio*1440/step)*step));}
-export function fittedTimelineHeight(viewport,top,mobile){return Math.max(288,Math.min(1000,viewport-top-(mobile?102:42)));}
+export function fittedTimelineHeight(viewport,top,mobile){return Math.max(336,Math.min(1000,viewport-top-(mobile?90:30)));}
 
 export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onTask,onEdit,onMove,onDay}) {
   const range=dateRange(date,mode),days=mode==='week'?Array.from({length:7},(_,i)=>shiftCalendarDate(range.start,i)):[date];

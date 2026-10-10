@@ -330,7 +330,7 @@ test("gates calendar tools behind paid passes and preserves billing infrastructu
     readFile(new URL("drizzle/0009_amusing_ender_wiggin.sql", root), "utf8"),
   ]);
 
-  assert.match(client, /开通通行证，解锁日历导入与时轨导出/);
+assert.match(client, /开通通行证，解锁日历导入与时序导出/);
   assert.match(client, /price: "HK\$8"/);
   assert.match(client, /price: "HK\$20"/);
   assert.match(client, /price: "HK\$160"/);
@@ -555,7 +555,7 @@ test("tracks durable task completions in a calendar activity map", async () => {
   assert.match(css, /\.activity-cell\{display:block;width:14px;height:14px/);
   assert.match(css, /\.activity-months\{grid-column:2;display:grid;grid-template-columns:repeat\(53,14px\);justify-content:space-between/);
   assert.match(css, /\.activity-chart\{width:100%;min-width:1032px/);
-  assert.match(route, /completed_at = CURRENT_TIMESTAMP/);
+  assert.match(route, /completed_at=COALESCE\(completed_at,CURRENT_TIMESTAMP\)/);
   assert.match(route, /AS completedAt/);
   assert.match(route, /INSERT OR IGNORE INTO quest_completions/);
   assert.match(route, /completed_date AS date/);
@@ -607,7 +607,7 @@ test("adds a draggable cloud-saved day timeline with custom categories and eight
     readFile(new URL("vercel-proxy/starlane-ui.css", root), "utf8"),
   ]);
 
-  assert.match(client, /STELLAR TIME MAP · 星轨时序/);
+  assert.match(client, /STELLAR TIME MAP · 时序/);
   assert.match(client, /\[10, 15, 30\]/);
   assert.match(client, /手动填写/);
   assert.match(client, /timeBlockColors/);

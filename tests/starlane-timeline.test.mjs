@@ -11,7 +11,7 @@ test('compressed timeline preserves time coordinates for all three scales',()=>{
   }
 });
 test('desktop and mobile reserve room below 24:00 without internal scrolling',()=>{
-  assert.equal(fittedTimelineHeight(768,312,false),414);
-  assert.equal(fittedTimelineHeight(844,350,true),392);
-  assert.equal(fittedTimelineHeight(780,350,true),328);
+  assert.equal(fittedTimelineHeight(768,312,false),426);
+  assert.equal(fittedTimelineHeight(844,350,true),404);
+  assert.equal(fittedTimelineHeight(780,350,true),340);
 });

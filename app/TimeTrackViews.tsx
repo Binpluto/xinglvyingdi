@@ -5,7 +5,7 @@ import '../vercel-proxy/starlane-full-timeline.css';
 import {createVerticalTimeline} from '../vercel-proxy/starlane-timeline.mjs';
 import {dateRange,validDate,downloadAuthorizedTimeline} from '../vercel-proxy/starlane-data.mjs';
 
-export type TimelineBlock={id:number;blockDate:string;startMinute:number;endMinute:number;title:string;type:'主线'|'支线'|'日常';categoryName:string;colorKey:string;note:string;createdAt:string;updatedAt:string};
+export type TimelineBlock={id:number;questId?:number;blockDate:string;startMinute:number;endMinute:number;title:string;type:'主线'|'支线'|'日常';categoryName:string;colorKey:string;note:string;createdAt:string;updatedAt:string};
 export async function fetchTimeRange(start:string,end:string):Promise<TimelineBlock[]> {
   const response=await fetch(`/api/game?view=timeTrack&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
   const json=await response.json();if(!response.ok)throw new Error(json.error||'读取日程失败');return json.blocks;

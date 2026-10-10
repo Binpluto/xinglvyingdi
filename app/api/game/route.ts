@@ -1095,12 +1095,14 @@ async function timeTrackState(email: string, timelineDate: string, endDate = tim
   const db = env.DB;
   const [blocks, categories] = await Promise.all([
     db.prepare(`
-      SELECT id, block_date AS blockDate, start_minute AS startMinute,
-        end_minute AS endMinute, title, type, category_name AS categoryName,
-        color_key AS colorKey, note, created_at AS createdAt, updated_at AS updatedAt
-      FROM time_blocks
-      WHERE user_email = ? AND block_date BETWEEN ? AND ?
-      ORDER BY block_date, start_minute, end_minute, id
+      SELECT b.id, b.quest_id AS questId, b.block_date AS blockDate, b.start_minute AS startMinute,
+        b.end_minute AS endMinute, COALESCE(q.title,b.title) AS title, COALESCE(q.type,b.type) AS type,
+        CASE WHEN q.type != b.type THEN CASE q.type WHEN '主线' THEN '核心项目' WHEN '支线' THEN '创作' ELSE '生活整理' END ELSE b.category_name END AS categoryName,
+        CASE WHEN q.type != b.type THEN CASE q.type WHEN '主线' THEN 'gold' WHEN '支线' THEN 'violet' ELSE 'jade' END ELSE b.color_key END AS colorKey,
+        b.note,b.created_at AS createdAt,b.updated_at AS updatedAt
+      FROM time_blocks b LEFT JOIN quests q ON q.id=b.quest_id AND q.user_email=b.user_email
+      WHERE b.user_email = ? AND b.block_date BETWEEN ? AND ?
+      ORDER BY b.block_date, b.start_minute, b.end_minute, b.id
     `).bind(email, timelineDate, endDate).all(),
     db.prepare(`
       SELECT id, parent_type AS parentType, name, color_key AS colorKey
@@ -1349,6 +1351,15 @@ export async function GET(request: Request) {
   }
 }
 
+async function completeTaskOnce(email:string,id:number,date:string){
+  const db=env.DB;
+  await db.batch([
+    db.prepare(`UPDATE users SET xp=xp+(SELECT reward FROM quests WHERE id=? AND user_email=?),coins=coins+(SELECT CAST((reward+1)/2 AS INTEGER) FROM quests WHERE id=? AND user_email=?) WHERE email=? AND EXISTS(SELECT 1 FROM quests WHERE id=? AND user_email=? AND completed=0) AND NOT EXISTS(SELECT 1 FROM quest_completions WHERE user_email=? AND quest_id=?)`).bind(id,email,id,email,email,id,email,email,id),
+    db.prepare(`INSERT OR IGNORE INTO quest_completions(user_email,quest_id,quest_title,reward,source,completed_date) SELECT user_email,id,title,reward,source,? FROM quests WHERE id=? AND user_email=? AND completed=0`).bind(date,id,email),
+    db.prepare('UPDATE quests SET completed=1,completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP) WHERE id=? AND user_email=?').bind(id,email),
+  ]);
+}
+
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
@@ -1411,6 +1422,7 @@ export async function POST(request: Request) {
       return Response.json({error:PREMIUM_MESSAGE,code:'premium_required'},{status:403});
     }
     if (body.action === "createTimeBlock" || body.action === "updateTimeBlock") {
+      if(body.questId&&!await db.prepare('SELECT id FROM quests WHERE id=? AND user_email=?').bind(body.questId,identity.email).first())return Response.json({error:'关联任务不存在'},{status:404});
       const blockDate = validClientDate(body.blockDate ?? body.timelineDate ?? body.clientDate);
       const rawStartMinute = Number(body.startMinute);
       const rawEndMinute = Number(body.endMinute);
@@ -1426,7 +1438,7 @@ export async function POST(request: Request) {
       const note = (body.note ?? "").trim().slice(0, 180);
       if (!title) return Response.json({ error: "请填写时间块名称" }, { status: 400 });
       if (endMinute - startMinute < 10) return Response.json({ error: "时间块至少需要 10 分钟" }, { status: 400 });
-      const blockId = body.action === "updateTimeBlock" ? Number(body.blockId) : 0;
+      let blockId = body.action === "updateTimeBlock" ? Number(body.blockId) : 0;
       if (body.action === "updateTimeBlock" && (!Number.isSafeInteger(blockId) || blockId <= 0)) {
         return Response.json({ error: "时间块不存在" }, { status: 404 });
       }
@@ -1438,11 +1450,11 @@ export async function POST(request: Request) {
       `).bind(identity.email, blockDate, blockId, endMinute, startMinute).first();
       if (overlap) return Response.json({ error: "这段时间已有安排，请调整开始或结束时间" }, { status: 409 });
       if (body.action === "createTimeBlock") {
-        await db.prepare(`
+        const inserted=await db.prepare(`
           INSERT INTO time_blocks
             (user_email, block_date, start_minute, end_minute, title, type, category_name, color_key, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).bind(identity.email, blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note).run();
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+        `).bind(identity.email, blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note).first<{id:number}>();blockId=inserted!.id;
       } else {
         const existing = await db.prepare("SELECT 1 FROM time_blocks WHERE id = ? AND user_email = ?")
           .bind(blockId, identity.email).first();
@@ -1453,6 +1465,14 @@ export async function POST(request: Request) {
           WHERE id = ? AND user_email = ?
         `).bind(blockDate, startMinute, endMinute, title, type, categoryName, colorKey, note, blockId, identity.email).run();
       }
+      const saved=await db.prepare('SELECT quest_id AS questId FROM time_blocks WHERE id=? AND user_email=?').bind(blockId,identity.email).first<{questId:number|null}>();
+      let taskId=saved?.questId||body.questId;
+      if(!taskId){
+        await db.prepare(`INSERT OR IGNORE INTO quests(user_email,title,detail,type,reward,source,external_id) VALUES(?,?,?,?,?,'sequence-record',?)`).bind(identity.email,title,note||'由时序记录完成',type,type==='主线'?80:type==='支线'?45:30,`sequence:${blockId}`).run();
+        const task=await db.prepare("SELECT id FROM quests WHERE user_email=? AND source='sequence-record' AND external_id=?").bind(identity.email,`sequence:${blockId}`).first<{id:number}>();taskId=task!.id;
+      }
+      await db.batch([db.prepare('UPDATE time_blocks SET quest_id=? WHERE id=? AND user_email=?').bind(taskId,blockId,identity.email),db.prepare('UPDATE quests SET type=? WHERE id=? AND user_email=?').bind(type,taskId,identity.email)]);
+      await completeTaskOnce(identity.email,taskId,blockDate);
     } else if (body.action === "deleteTimeBlock") {
       const blockId = Number(body.blockId);
       const result = await db.prepare("DELETE FROM time_blocks WHERE id = ? AND user_email = ?")
@@ -1613,26 +1633,9 @@ export async function POST(request: Request) {
     } else if (body.action === "chooseRealmTarget") {
       return Response.json({ error: "大陆按照固定远征顺序解锁，请完成当前系统门槛" }, { status: 400 });
     } else if (body.action === "completeQuest") {
-      const quest = await db.prepare(
-        "SELECT reward, completed FROM quests WHERE id = ? AND user_email = ?",
-      ).bind(body.questId, identity.email).first<{ reward: number; completed: number }>();
-      if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
-      if (!quest.completed) {
-        const completedDate = /^\d{4}-\d{2}-\d{2}$/.test(body.clientDate ?? "")
-          ? body.clientDate!
-          : new Date().toISOString().slice(0, 10);
-        await db.batch([
-          db.prepare("UPDATE quests SET completed = 1, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND user_email = ?").bind(body.questId, identity.email),
-          db.prepare(`
-            INSERT OR IGNORE INTO quest_completions
-              (user_email, quest_id, quest_title, reward, source, completed_date)
-            SELECT user_email, id, title, reward, source, ?
-            FROM quests WHERE id = ? AND user_email = ?
-          `).bind(completedDate, body.questId, identity.email),
-          db.prepare("UPDATE users SET xp = xp + ?, coins = coins + ? WHERE email = ?")
-            .bind(quest.reward, Math.ceil(quest.reward / 2), identity.email),
-        ]);
-      }
+      const task=await db.prepare('SELECT id FROM quests WHERE id=? AND user_email=?').bind(body.questId,identity.email).first<{id:number}>();
+      if(!task)return Response.json({error:'任务不存在'},{status:404});
+      await completeTaskOnce(identity.email,task.id,validClientDate(body.clientDate));
     } else if (body.action === "editQuest") {
       const title = (body.title ?? "").trim().slice(0, 80);
       const detail = (body.detail ?? "").trim().slice(0, 180);

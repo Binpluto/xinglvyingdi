@@ -117,6 +117,7 @@ export const timeBlockCategories = sqliteTable("time_block_categories", {
 
 export const timeBlocks = sqliteTable("time_blocks", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  questId: integer('quest_id').references(()=>quests.id,{onDelete:'set null'}),
   userEmail: text("user_email").notNull().references(() => users.email, { onDelete: "cascade" }),
   blockDate: text("block_date").notNull(),
   startMinute: integer("start_minute").notNull(),

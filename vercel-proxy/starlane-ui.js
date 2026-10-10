@@ -1,6 +1,7 @@
 import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=4';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=8';
+import {sequenceBlocks} from './sequence-records.mjs?v=8';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -27,6 +28,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
   const hiddenNodes = new Map();
   const scrollPositions = new Map();
   let disposeTimeline=null;
+  let hostNeedsRefresh=false;
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -61,7 +63,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
   }
   async function fetchData() {
     const response = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`, { credentials: "same-origin" });
-    if (!response.ok) throw new Error("星轨数据读取失败");
+    if (!response.ok) throw new Error("时序数据读取失败");
     data = await response.json();
     return data;
   }
@@ -77,13 +79,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     return json;
   }
   function parseBlocks() {
-    return (data?.quests || []).filter((quest) => String(quest.title).startsWith(BLOCK_PREFIX)).map((quest) => {
-      const [, date, start, end] = String(quest.title).split("|");
-      try {
-        const detail = JSON.parse(quest.detail || "{}");
-        return { id: quest.id, date, start: Number(start), end: Number(end), title: detail.t || "未命名", type: types.includes(detail.m) ? detail.m : "日常", category: detail.c || "未分类", color: colors.some(([key]) => key === detail.k) ? detail.k : "jade", note: detail.n || "" };
-      } catch { return null; }
-    }).filter(Boolean);
+    return sequenceBlocks(data?.quests||[]);
   }
   function parseCategories(type) {
     const custom = (data?.quests || []).filter((quest) => String(quest.title).startsWith(`${CATEGORY_PREFIX}${type}|`)).map((quest) => {
@@ -113,9 +109,10 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     if (!block.title.trim()) throw new Error("请填写时间块名称");
     if (block.end - block.start < 10) throw new Error("时间块至少需要 10 分钟");
     if (overlaps(block, block.id)) throw new Error("这段时间已有安排，请调整时间");
-    const common = { title: storageTitle(block), detail: payloadFor(block), type: block.type };
-    await api(block.id ? { action: "editQuest", questId: block.id, ...common } : { action: "createQuest", ...common });
-    notify(block.id ? "时间块已更新" : "新的时间块已写入星轨");
+    const response=await fetch('/api/sequence-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...block,recordKey:block.recordKey||crypto.randomUUID()})});
+    const json=await response.json();if(!response.ok)throw new Error(json.error||'保存失败，请重试');data=json;hostNeedsRefresh=true;
+    window.dispatchEvent(new CustomEvent('starcamp:game-data',{detail:json}));
+    notify('时序记录已保存，对应任务已完成');
     renderPage();
   }
   async function deleteBlock(id) {
@@ -169,7 +166,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
       pageOpen = true;
       mountPage();
       renderPage();
-    } catch (error) { if(version===navigationVersion){closePage();notify(error instanceof Error ? error.message : "暂时无法打开星轨");} }
+    } catch (error) { if(version===navigationVersion){closePage();notify(error instanceof Error ? error.message : "暂时无法打开时序");} }
     finally {if(version===navigationVersion)opening=false;}
   }
   function ensureNav() {
@@ -177,11 +174,13 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     if(document.querySelector('.auth-page')){if(pageOpen||opening)closePage();data=null;return;}
     const nav = document.querySelector(".nav-stack");
     if(!nav)return;
-    if(![...nav.querySelectorAll('.nav-item small')].some(item=>item.textContent==='时轨')){
-      const button=el('button','nav-item starlane-nav');button.append(el('span','','▥'),el('small','','时轨'));
+    if(![...nav.querySelectorAll('.nav-item small')].some(item=>item.textContent==='时序'||item.textContent==='时轨')){
+      const button=el('button','nav-item starlane-nav');const icon=el('span','sequence-nav-icon');icon.innerHTML='<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M19 7a8.5 8.5 0 1 0 1.5 5"/><path d="M12 7v5l3 2"/><path d="M19 2v6M16 5h6" stroke="#b99244"/></svg>';button.append(icon,el('small','','时序'));
       nav.insertBefore(button,nav.children[2]||null);
     }
     mountPage();
+    const restore=sessionStorage.getItem('starcamp:return-tab');
+    if(restore&&!pageOpen){const button=[...nav.querySelectorAll('.nav-item')].find(item=>item.querySelector('small')?.textContent===restore);if(button){sessionStorage.removeItem('starcamp:return-tab');button.click();}}
   }
   function renderPage() {
     if (!pageOpen || !pageElement || !data) return;
@@ -191,7 +190,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     const blocks = filterRange(parseBlocks(), range.start, range.end).sort((a, b) => a.date.localeCompare(b.date) || a.start-b.start);
     const header = el("header", "starlane-compat-header");
     const copy = el("div");
-    copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "全天纵向展开：拖选时间，移动色块，点开编辑详情。"));
+    copy.append(el("small", "", "STELLAR TIME MAP · 时序"), el("h2", "", "把一天，铺成看得见的时序"), el("p", "", "全天纵向展开：拖选时间，移动色块，点开编辑详情。"));
     const dateNav = el("div", "starlane-compat-date");
     const prev = el("button", "", "‹"); prev.setAttribute('aria-label',viewMode==='week'?'上一周':'前一天'); prev.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?-7:-1); renderPage(); };
     const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { if(!validDate(dateInput.value)){dateInput.value=selectedDate;notify('请选择有效日期，已保留当前日程');return;} selectedDate = dateInput.value; renderPage(); };
@@ -237,12 +236,12 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     selectedTask = null;
     const type = types.includes(task.type) ? task.type : '日常';
     const first = defaults[type][0];
-    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '' });
-    document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；不会自动完成原任务。'));
+    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '',questId:task.id });
+    document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；保存后对应任务自动完成。'));
   }
   function renderTaskTray() {
     const tray = el('section', 'starlane-task-tray');
-    tray.append(el('h3', '', '任务待排区'), el('p', 'starlane-task-hint', '拖到轨道，或点选任务后点选时间。保存前可调整时长；不会自动完成原任务。'));
+    tray.append(el('h3', '', '任务待排区'), el('p', 'starlane-task-hint', '拖到轨道，或点选任务后点选时间。保存前可调整时长；保存后对应任务自动完成。'));
     const refresh = el('button', 'refresh', '刷新任务');
     refresh.onclick = async () => { refresh.disabled = true; try { await fetchData(); renderPage(); } catch (error) { notify(error.message); refresh.disabled = false; } };
     tray.append(refresh);
@@ -301,6 +300,7 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     backdrop.onmousedown=event=>{if(event.target===backdrop)backdrop.remove();};
   }
   function openEditor(block) {
+    block.recordKey ||= crypto.randomUUID();
     document.querySelector(".starlane-compat-editor-backdrop")?.remove();
     const backdrop = el("div", "starlane-compat-editor-backdrop"), dialog = el("section", "starlane-compat-editor");
     const close = el("button", "close", "×"); close.onclick = () => backdrop.remove();
@@ -320,17 +320,28 @@ import {createVerticalTimeline} from './starlane-timeline.mjs?v=7';
     const categoryLabel = el("label"); categoryLabel.append(el("span", "", "细分分类"), category);
     const note = el("textarea"); note.placeholder = "记录成果、状态或下一步"; note.maxLength = 24; note.value = block.note || ""; const noteLabel = el("label"); noteLabel.append(el("span", "", "备注（可选）"), note);
     const footer = el("footer"); if (block.id) { const remove = el("button", "delete", "删除"); remove.onclick = async () => { try { await deleteBlock(block.id); backdrop.remove(); } catch (error) { notify(error.message); } }; footer.append(remove); }
-    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到星轨"); save.onclick = async () => { save.disabled = true; try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false; } }; footer.append(cancel, save);
+    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到时序"); save.onclick = async () => { save.disabled = true; try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false; } }; footer.append(cancel, save);
     const typeField = el("fieldset"); typeField.append(el("legend", "", "所属模块"), typeRow); const colorField = el("fieldset"); colorField.append(el("legend", "", "色块颜色"), colorRow);
     dialog.append(close, header, titleLabel, typeField, times, categoryLabel, colorField, noteLabel, footer); backdrop.append(dialog); backdrop.onmousedown = (event) => { if (event.target === backdrop) backdrop.remove(); }; document.body.append(backdrop); title.focus();
   }
   let queued = false;
+  async function refreshSequence(){
+    if(!pageOpen||document.visibilityState!=='visible'||document.querySelector('.starlane-compat-editor-backdrop'))return;
+    const before=JSON.stringify(data?.quests||[]);
+    try{await fetchData();if(pageOpen&&before!==JSON.stringify(data?.quests||[])&&!document.querySelector('.starlane-compat-editor-backdrop'))renderPage();}catch{}
+  }
+  window.addEventListener('focus',()=>void refreshSequence());
+  window.setInterval(()=>void refreshSequence(),30000);
   // Delegation survives replacement of the upstream navigation by React.
   document.addEventListener('click',event=>{
     const target=event.target instanceof Element?event.target.closest('.nav-item, .signout-link, .invite-fab'):null;
     if(!target)return;
     if(target.classList.contains('starlane-nav')){event.preventDefault();void openPage();}
-    else if(target.closest('.nav-stack')||target.classList.contains('signout-link')||target.classList.contains('invite-fab'))closePage();
+    else if(target.closest('.nav-stack')||target.classList.contains('signout-link')||target.classList.contains('invite-fab')){
+      const next=target.querySelector('small')?.textContent;
+      closePage();
+      if(hostNeedsRefresh&&next&&!target.classList.contains('signout-link')){hostNeedsRefresh=false;sessionStorage.setItem('starcamp:return-tab',next);window.setTimeout(()=>location.reload(),0);}
+    }
   },true);
   function schedule() {
     if (queued) return; queued = true;
