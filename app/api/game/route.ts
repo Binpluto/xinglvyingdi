@@ -3,6 +3,7 @@ import { assertSameOrigin, getAppUser } from "../../app-auth";
 import { claimLevel100CalendarReward, getCalendarAccess } from "../../calendar-access";
 import { GoogleCalendarReconnectRequired, syncGoogleCalendar } from "../../google-calendar";
 import { getPremiumProgram, updatePremiumFreeSlots } from "../../premium-access";
+import { validDate } from '../../../vercel-proxy/starlane-data.mjs';
 
 type UserRow = {
   email: string;
@@ -1088,7 +1089,7 @@ async function monthlyVoyageReview(email: string, clientDate: string) {
   };
 }
 
-async function timeTrackState(email: string, timelineDate: string) {
+async function timeTrackState(email: string, timelineDate: string, endDate = timelineDate) {
   const db = env.DB;
   const [blocks, categories] = await Promise.all([
     db.prepare(`
@@ -1096,9 +1097,9 @@ async function timeTrackState(email: string, timelineDate: string) {
         end_minute AS endMinute, title, type, category_name AS categoryName,
         color_key AS colorKey, note, created_at AS createdAt, updated_at AS updatedAt
       FROM time_blocks
-      WHERE user_email = ? AND block_date = ?
-      ORDER BY start_minute, end_minute, id
-    `).bind(email, timelineDate).all(),
+      WHERE user_email = ? AND block_date BETWEEN ? AND ?
+      ORDER BY block_date, start_minute, end_minute, id
+    `).bind(email, timelineDate, endDate).all(),
     db.prepare(`
       SELECT id, parent_type AS parentType, name, color_key AS colorKey
       FROM time_block_categories
@@ -1332,6 +1333,11 @@ export async function GET(request: Request) {
     const identity = await currentUser(request);
     if (!identity) return Response.json({ error: "请先登录" }, { status: 401 });
     const params = new URL(request.url).searchParams;
+    if (params.get('view') === 'timeTrack') {
+      const start = params.get('start') ?? '', end = params.get('end') ?? '';
+      if (!validDate(start) || !validDate(end) || start > end) return Response.json({error:'请选择有效起止日期'}, {status:400});
+      return Response.json(await timeTrackState(identity.email, start, end));
+    }
     const clientDate = params.get("clientDate");
     const timelineDate = params.get("timelineDate");
     return Response.json(await dashboard(identity.email, clientDate, timelineDate));

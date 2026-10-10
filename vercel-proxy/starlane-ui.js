@@ -1,4 +1,4 @@
-import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?v=2';
+import { availableTasks, taskSlot, downloadTimeline, dateRange, filterRange, shiftCalendarDate } from './starlane-data.mjs?v=3';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -18,6 +18,7 @@ import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?
   let selectedDate = localDateKey(new Date());
   let granularity = 15;
   let selectedTask = null;
+  let viewMode = 'day';
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -152,14 +153,15 @@ import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?
     const page = document.querySelector(".starlane-compat-page");
     if (!page || !data) return;
     page.replaceChildren();
-    const blocks = parseBlocks().filter((block) => block.date === selectedDate).sort((a, b) => a.start - b.start);
+    const range = dateRange(selectedDate, viewMode);
+    const blocks = filterRange(parseBlocks(), range.start, range.end).sort((a, b) => a.date.localeCompare(b.date) || a.start-b.start);
     const header = el("header", "starlane-compat-header");
     const copy = el("div");
     copy.append(el("small", "", "STELLAR TIME MAP · 星轨时序"), el("h2", "", "把一天，铺成看得见的星轨"), el("p", "", "拖拽空白轨道创建时间块；拖动色块调整时间，底部把手改变时长。"));
     const dateNav = el("div", "starlane-compat-date");
-    const prev = el("button", "", "‹"); prev.onclick = () => { selectedDate = shiftDate(selectedDate, -1); renderPage(); };
+    const prev = el("button", "", "‹"); prev.setAttribute('aria-label',viewMode==='week'?'上一周':'前一天'); prev.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?-7:-1); renderPage(); };
     const dateInput = el("input"); dateInput.type = "date"; dateInput.value = selectedDate; dateInput.onchange = () => { selectedDate = dateInput.value; renderPage(); };
-    const next = el("button", "", "›"); next.onclick = () => { selectedDate = shiftDate(selectedDate, 1); renderPage(); };
+    const next = el("button", "", "›"); next.setAttribute('aria-label',viewMode==='week'?'下一周':'后一天'); next.onclick = () => { selectedDate = shiftDate(selectedDate, viewMode==='week'?7:1); renderPage(); };
     const today = el("button", "today", "今天"); today.disabled = selectedDate === localDateKey(new Date()); today.onclick = () => { selectedDate = localDateKey(new Date()); renderPage(); };
     dateNav.append(prev, dateInput, next, today); header.append(copy, dateNav);
     const summary = el("div", "starlane-compat-summary");
@@ -170,36 +172,44 @@ import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?
     const total = blocks.reduce((sum, block) => sum + block.end - block.start, 0);
     const totalCard = el("div", "summary-total"); totalCard.append(el("span", "", "已记录"), el("b", "", `${total} min`)); summary.append(totalCard);
     const toolbar = el("div", "starlane-compat-toolbar");
+    const views = el('div','starlane-view-switch');
+    [['day','日视图'],['week','周视图']].forEach(([mode,label])=>{const button=el('button',viewMode===mode?'active':'',label);button.setAttribute('aria-pressed',String(viewMode===mode));button.onclick=()=>{viewMode=mode;renderPage();};views.append(button);});
+    toolbar.append(views);
     const steps = el("div"); steps.append(el("span", "", "时间刻度"));
     [10, 15, 30].forEach((step) => { const button = el("button", granularity === step ? "active" : "", `${step} min`); button.onclick = () => { granularity = step; renderPage(); }; steps.append(button); });
     const manual = el("button", "manual", "＋ 手动填写"); manual.onclick = () => openEditor({ date: selectedDate, start: 540, end: 600, title: "", type: "主线", category: "核心项目", color: "gold", note: "" });
     toolbar.append(steps, manual);
-    const exports = el('div', 'starlane-exports');
-    ['csv', 'ics'].forEach(format => {
-      const button = el('button', '', `导出当天 ${format.toUpperCase()}`);
-      button.disabled = !blocks.length;
-      button.onclick = () => downloadTimeline(blocks, format, selectedDate);
-      exports.append(button);
-    });
-    toolbar.append(exports);
+    const exportButton=el('button','','导出日程'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel = el("section", "starlane-compat-timeline-panel");
-    timelinePanel.append(el("div", "starlane-compat-legend", "拖拽空白区域，快速记录一段时间"));
+    timelinePanel.append(el("div", "starlane-compat-legend", viewMode==='week' ? `${range.start} — ${range.end} · 周一至周日（手机可左右滑动）` : "拖拽空白区域，快速记录一段时间"));
     const scroll = el("div", "starlane-compat-scroll");
     const slotHeight = 18, height = 1440 / granularity * slotHeight;
     const labels = el("div", "starlane-compat-hours"); labels.style.height = `${height}px`;
     for (let hour = 0; hour <= 24; hour += 1) { const label = el("span", "", `${String(hour).padStart(2, "0")}:00`); label.style.top = `${hour / 24 * height}px`; labels.append(label); }
-    const grid = el("div", "starlane-compat-grid"); grid.style.height = `${height}px`; grid.style.setProperty("--slot-height", `${slotHeight}px`);
-    grid.ondragover = event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } };
-    grid.ondrop = event => {
-      event.preventDefault();
-      const task = availableTasks(data.quests || []).find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task')));
-      if (task) placeTask(task, minuteAt(event, grid, slotHeight));
-    };
-    if (selectedDate === localDateKey(new Date())) { const line = el("i", "starlane-compat-now"); line.style.top = `${(new Date().getHours() * 60 + new Date().getMinutes()) / granularity * slotHeight}px`; grid.append(line); }
-    blocks.forEach((block) => grid.append(renderBlock(block, slotHeight)));
-    bindCreateDrag(grid, slotHeight);
-    scroll.append(labels, grid); timelinePanel.append(scroll);
+    const days=viewMode==='week'?Array.from({length:7},(_,i)=>shiftCalendarDate(range.start,i)):[selectedDate];
+    const lanes=el('div',viewMode==='week'?'starlane-week-lanes':'starlane-day-lanes');
+    if(viewMode==='week') scroll.classList.add('starlane-week-scroll');
+    days.forEach(day=>{
+      const column=el('div','starlane-day-column');
+      if(viewMode==='week'){
+        const heading=el('button','starlane-day-heading',`${['周日','周一','周二','周三','周四','周五','周六'][new Date(day+'T12:00:00Z').getUTCDay()]} ${day.slice(5)}`);
+        heading.onclick=()=>{selectedDate=day;viewMode='day';renderPage();}; column.append(heading);
+      }
+      const grid = el("div", "starlane-compat-grid"); grid.dataset.date=day;
+      grid.setAttribute('aria-label',day+' 时间轴');
+      grid.style.height = `${height}px`; grid.style.setProperty("--slot-height", `${slotHeight}px`);
+      grid.ondragover = event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } };
+      grid.ondrop = event => {
+        event.preventDefault();
+        const task = availableTasks(data.quests || []).find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task')));
+        if (task) placeTask(task, minuteAt(event, grid, slotHeight), day);
+      };
+      if (day === localDateKey(new Date())) { const line = el("i", "starlane-compat-now"); line.style.top = `${(new Date().getHours() * 60 + new Date().getMinutes()) / granularity * slotHeight}px`; grid.append(line); }
+      blocks.filter(b=>b.date===day).forEach(block=>grid.append(renderBlock(block,slotHeight)));
+      bindCreateDrag(grid, slotHeight, day); column.append(grid); lanes.append(column);
+    });
+    scroll.append(labels, lanes); timelinePanel.append(scroll);
     const sidebar = el('div', 'starlane-task-sidebar');
     sidebar.append(renderTaskTray(), renderCategories());
     layout.append(timelinePanel, sidebar);
@@ -210,25 +220,26 @@ import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?
     const rect = grid.getBoundingClientRect();
     return Math.max(0, Math.min(1440, Math.round(((event.clientY - rect.top) / slotHeight)) * granularity));
   }
-  function bindCreateDrag(grid, slotHeight) {
+  function bindCreateDrag(grid, slotHeight, day = selectedDate) {
     grid.onpointerdown = (event) => {
       if (event.target.closest(".starlane-compat-block")) return;
       const start = minuteAt(event, grid, slotHeight);
-      if (selectedTask) { placeTask(selectedTask, start); return; }
+      if (selectedTask) { placeTask(selectedTask, start, day); return; }
       const preview = el("div", "starlane-compat-preview"); grid.append(preview);
       let from = start, to = Math.min(1440, start + granularity);
       const draw = () => { preview.style.top = `${from / granularity * slotHeight + 1}px`; preview.style.height = `${Math.max(22, (to - from) / granularity * slotHeight - 2)}px`; preview.textContent = `${minuteLabel(from)}–${minuteLabel(to)}`; };
       draw();
       const move = (pointer) => { const minute = minuteAt(pointer, grid, slotHeight); from = Math.min(start, minute); to = Math.min(1440, Math.max(start + granularity, minute + granularity)); draw(); };
-      const up = () => { window.removeEventListener("pointermove", move); preview.remove(); openEditor({ date: selectedDate, start: from, end: to, title: "", type: "主线", category: "核心项目", color: "gold", note: "" }); };
-      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });
+      const cancel = () => {window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',cancel);preview.remove();};
+      const up = () => { cancel(); openEditor({ date: day, start: from, end: to, title: "", type: "主线", category: "核心项目", color: "gold", note: "" }); };
+      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });window.addEventListener('pointercancel',cancel,{once:true});
     };
   }
-  function placeTask(task, minute) {
+  function placeTask(task, minute, day = selectedDate) {
     selectedTask = null;
     const type = types.includes(task.type) ? task.type : '日常';
     const first = defaults[type][0];
-    openEditor({ date: selectedDate, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '' });
+    openEditor({ date: day, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '' });
     document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；不会自动完成原任务。'));
   }
   function renderTaskTray() {
@@ -292,6 +303,28 @@ import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?
     colors.forEach(([key, label]) => { const button = el("button", `${key === chosen ? "active " : ""}color-${key}`); button.title = label; button.onclick = () => { chosen = key; palette.querySelectorAll("button").forEach((item) => item.classList.toggle("active", item === button)); }; palette.append(button); });
     const save = el("button", "save", "保存分类"); save.onclick = async () => { if (name.value.trim().length < 2) return; try { await api({ action: "createQuest", title: `${CATEGORY_PREFIX}${typeSelect.value}|${name.value.trim().slice(0, 12)}`, detail: JSON.stringify({ k: chosen }), type: typeSelect.value }); renderPage(); } catch (error) { notify(error.message); } };
     creator.append(typeSelect, name, palette, save); panel.append(creator); return panel;
+  }
+  function openExportPanel() {
+    const backdrop=el('div','starlane-compat-editor-backdrop'), panel=el('section','starlane-compat-editor');
+    panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','导出日程');
+    const close=el('button','close','×');close.setAttribute('aria-label','关闭导出');close.onclick=()=>backdrop.remove();
+    const heading=el('h3','','导出日程');
+    const note=el('p','','周与月以当前选中日期为基准，范围包含起止两天。ICS 使用当地时间。');
+    const shortcuts=el('div','starlane-exports');
+    const start=el('input'),end=el('input'); start.type=end.type='date';
+    const initial=dateRange(selectedDate,viewMode); start.value=initial.start;end.value=initial.end;
+    const startLabel=el('label'),endLabel=el('label');startLabel.append(el('span','','开始日期'),start);endLabel.append(el('span','','结束日期'),end);
+    const status=el('p','starlane-export-status');status.setAttribute('role','status');
+    const actions=el('footer');
+    function update(){try{const rows=filterRange(parseBlocks(),start.value,end.value);status.textContent=`${start.value} — ${end.value} · 共 ${rows.length} 个时间块`;actions.querySelectorAll('button').forEach(b=>b.disabled=!rows.length);}catch(error){status.textContent=error.message;actions.querySelectorAll('button').forEach(b=>b.disabled=true);}}
+    [['day','当天'],['week','本周'],['month','本月']].forEach(([unit,label])=>{const button=el('button','',label);button.onclick=()=>{const range=dateRange(selectedDate,unit);start.value=range.start;end.value=range.end;update();};shortcuts.append(button);});
+    ['csv','ics'].forEach(format=>{const button=el('button','save',`导出 ${format.toUpperCase()}`);button.onclick=async()=>{
+      button.disabled=true;status.textContent='正在读取最新记录…';
+      try{await fetchData();const rows=filterRange(parseBlocks(),start.value,end.value);if(!rows.length)throw new Error('所选范围暂无时间块');downloadTimeline(rows,format,`${start.value}_${end.value}`);update();}catch(error){status.textContent=error.message;button.disabled=false;}
+    };actions.append(button);});
+    start.onchange=end.onchange=update;
+    panel.append(close,heading,note,shortcuts,startLabel,endLabel,status,actions);backdrop.append(panel);document.body.append(backdrop);update();start.focus();
+    backdrop.onmousedown=event=>{if(event.target===backdrop)backdrop.remove();};
   }
   function openEditor(block) {
     document.querySelector(".starlane-compat-editor-backdrop")?.remove();

@@ -49,13 +49,13 @@ function injectVercelEnhancements(html) {
     '<link rel="stylesheet" href="/weekly-summary-ui.css?v=1">',
     '<link rel="stylesheet" href="/mobile-reminder-ui.css?v=1">',
     '<link rel="stylesheet" href="/starlane-ui.css?v=2">',
-    '<link rel="stylesheet" href="/starlane-addons.css?v=2">',
+    '<link rel="stylesheet" href="/starlane-addons.css?v=3">',
     '<script defer src="/energy-ui.js?v=2"></script>',
     '<script defer src="/medal-ui.js?v=1"></script>',
     '<script defer src="/monthly-ui.js?v=1"></script>',
     '<script defer src="/weekly-summary-ui.js?v=1"></script>',
     '<script defer src="/mobile-reminder-ui.js?v=1"></script>',
-    '<script type="module" src="/starlane-ui.js?v=2"></script>',
+    '<script type="module" src="/starlane-ui.js?v=3"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
   ].join("");
   return html.includes("</head>") ? html.replace("</head>", `${assets}</head>`) : `${assets}${html}`;

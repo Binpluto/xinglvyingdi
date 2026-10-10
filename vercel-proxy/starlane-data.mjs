@@ -1,4 +1,31 @@
 // Shared by the hosted entry and the React client. Times are local wall-clock times.
+export function validDate(date) {
+  return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(date)) && new Date(date+'T12:00:00Z').toISOString().slice(0,10) === date;
+}
+export function shiftCalendarDate(date, days) {
+  const value = new Date(date+'T12:00:00Z');
+  value.setUTCDate(value.getUTCDate()+days);
+  return value.toISOString().slice(0,10);
+}
+export function dateRange(date, unit = 'day') {
+  if (!validDate(date)) throw new Error('请选择有效日期');
+  if (unit === 'week') {
+    const offset = (new Date(date+'T12:00:00Z').getUTCDay()+6)%7;
+    const start = shiftCalendarDate(date, -offset);
+    return {start, end:shiftCalendarDate(start,6)};
+  }
+  if (unit === 'month') {
+    const start = date.slice(0,7)+'-01';
+    const next = new Date(start+'T12:00:00Z'); next.setUTCMonth(next.getUTCMonth()+1);
+    return {start,end:shiftCalendarDate(next.toISOString().slice(0,10),-1)};
+  }
+  return {start:date,end:date};
+}
+export function filterRange(blocks, start, end) {
+  if (!validDate(start) || !validDate(end) || start > end) throw new Error('请选择有效范围，结束日期不能早于开始日期');
+  return blocks.filter(b=>b.date>=start && b.date<=end);
+}
+
 export function availableTasks(quests) {
   return quests.filter(q => !q.done && !/^(▥时轨\||▥分类\||☾ 月度航向 )/.test(q.title))
     .sort((a, b) => (a.dueAt || '9999').localeCompare(b.dueAt || '9999') || a.id - b.id);
