@@ -1,3 +1,5 @@
+import { availableTasks, taskSlot, downloadTimeline } from './starlane-data.mjs?v=2';
+
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
   const CATEGORY_PREFIX = "▥分类|";
@@ -15,6 +17,7 @@
   let pageOpen = false;
   let selectedDate = localDateKey(new Date());
   let granularity = 15;
+  let selectedTask = null;
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -171,6 +174,14 @@
     [10, 15, 30].forEach((step) => { const button = el("button", granularity === step ? "active" : "", `${step} min`); button.onclick = () => { granularity = step; renderPage(); }; steps.append(button); });
     const manual = el("button", "manual", "＋ 手动填写"); manual.onclick = () => openEditor({ date: selectedDate, start: 540, end: 600, title: "", type: "主线", category: "核心项目", color: "gold", note: "" });
     toolbar.append(steps, manual);
+    const exports = el('div', 'starlane-exports');
+    ['csv', 'ics'].forEach(format => {
+      const button = el('button', '', `导出当天 ${format.toUpperCase()}`);
+      button.disabled = !blocks.length;
+      button.onclick = () => downloadTimeline(blocks, format, selectedDate);
+      exports.append(button);
+    });
+    toolbar.append(exports);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel = el("section", "starlane-compat-timeline-panel");
     timelinePanel.append(el("div", "starlane-compat-legend", "拖拽空白区域，快速记录一段时间"));
@@ -179,11 +190,18 @@
     const labels = el("div", "starlane-compat-hours"); labels.style.height = `${height}px`;
     for (let hour = 0; hour <= 24; hour += 1) { const label = el("span", "", `${String(hour).padStart(2, "0")}:00`); label.style.top = `${hour / 24 * height}px`; labels.append(label); }
     const grid = el("div", "starlane-compat-grid"); grid.style.height = `${height}px`; grid.style.setProperty("--slot-height", `${slotHeight}px`);
+    grid.ondragover = event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } };
+    grid.ondrop = event => {
+      event.preventDefault();
+      const task = availableTasks(data.quests || []).find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task')));
+      if (task) placeTask(task, minuteAt(event, grid, slotHeight));
+    };
     if (selectedDate === localDateKey(new Date())) { const line = el("i", "starlane-compat-now"); line.style.top = `${(new Date().getHours() * 60 + new Date().getMinutes()) / granularity * slotHeight}px`; grid.append(line); }
     blocks.forEach((block) => grid.append(renderBlock(block, slotHeight)));
     bindCreateDrag(grid, slotHeight);
     scroll.append(labels, grid); timelinePanel.append(scroll);
-    const sidebar = renderCategories();
+    const sidebar = el('div', 'starlane-task-sidebar');
+    sidebar.append(renderTaskTray(), renderCategories());
     layout.append(timelinePanel, sidebar);
     page.append(header, summary, toolbar, layout);
     requestAnimationFrame(() => { scroll.scrollTop = Math.max(0, 360 / granularity * slotHeight - 20); });
@@ -196,6 +214,7 @@
     grid.onpointerdown = (event) => {
       if (event.target.closest(".starlane-compat-block")) return;
       const start = minuteAt(event, grid, slotHeight);
+      if (selectedTask) { placeTask(selectedTask, start); return; }
       const preview = el("div", "starlane-compat-preview"); grid.append(preview);
       let from = start, to = Math.min(1440, start + granularity);
       const draw = () => { preview.style.top = `${from / granularity * slotHeight + 1}px`; preview.style.height = `${Math.max(22, (to - from) / granularity * slotHeight - 2)}px`; preview.textContent = `${minuteLabel(from)}–${minuteLabel(to)}`; };
@@ -204,6 +223,34 @@
       const up = () => { window.removeEventListener("pointermove", move); preview.remove(); openEditor({ date: selectedDate, start: from, end: to, title: "", type: "主线", category: "核心项目", color: "gold", note: "" }); };
       window.addEventListener("pointermove", move); window.addEventListener("pointerup", up, { once: true });
     };
+  }
+  function placeTask(task, minute) {
+    selectedTask = null;
+    const type = types.includes(task.type) ? task.type : '日常';
+    const first = defaults[type][0];
+    openEditor({ date: selectedDate, ...taskSlot(minute, granularity), title: task.title, type, category: first[0], color: first[1], note: '' });
+    document.querySelector('.starlane-task-hint')?.replaceChildren(document.createTextNode('拖到轨道，或点选任务后点选时间。保存前可调整时长；不会自动完成原任务。'));
+  }
+  function renderTaskTray() {
+    const tray = el('section', 'starlane-task-tray');
+    tray.append(el('h3', '', '任务待排区'), el('p', 'starlane-task-hint', '拖到轨道，或点选任务后点选时间。保存前可调整时长；不会自动完成原任务。'));
+    const refresh = el('button', 'refresh', '刷新任务');
+    refresh.onclick = async () => { refresh.disabled = true; try { await fetchData(); renderPage(); } catch (error) { notify(error.message); refresh.disabled = false; } };
+    tray.append(refresh);
+    const list = el('div', 'starlane-task-list'), tasks = availableTasks(data.quests || []);
+    if (!tasks.length) list.append(el('p', '', '暂无未完成任务，可先到任务页添加。'));
+    tasks.forEach(task => {
+      const button = el('button', 'starlane-task-item'); button.draggable = true;
+      button.append(el('b', '', task.title), el('small', '', `${task.type} · ${task.dueAt ? task.dueAt.slice(0,10) : '未设日期'}`));
+      button.ondragstart = event => { selectedTask = null; event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy'; };
+      button.onclick = () => {
+        selectedTask = task;
+        tray.querySelector('.starlane-task-hint').textContent = `已选「${task.title}」，请点击轨道的开始时间。`;
+        document.querySelector('.starlane-compat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
+      };
+      list.append(button);
+    });
+    tray.append(list); return tray;
   }
   function renderBlock(block, slotHeight) {
     const article = el("article", `starlane-compat-block color-${block.color}`);

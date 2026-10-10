@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { availableTasks, taskSlot, downloadTimeline } from '../vercel-proxy/starlane-data.mjs';
+import '../vercel-proxy/starlane-addons.css';
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number; avatar_key: string; custom_avatar: string | null };
@@ -1530,6 +1532,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
   const [draft, setDraft] = useState<TimeBlockDraft | null>(null);
   const [drag, setDrag] = useState<TimeDragState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Quest | null>(null);
   const [newCategory, setNewCategory] = useState("");
   const [categoryType, setCategoryType] = useState<"主线" | "支线" | "日常">("主线");
   const [categoryColor, setCategoryColor] = useState("gold");
@@ -1591,7 +1594,19 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
   function beginCreate(event: ReactPointerEvent<HTMLDivElement>) {
     if ((event.target as HTMLElement).closest(".star-time-block")) return;
     const startMinute = minuteFromPointer(event.clientY);
+    if (selectedTask) { placeTask(selectedTask, startMinute); return; }
     setDrag({ mode: "create", originY: event.clientY, startMinute, endMinute: startMinute + granularity, currentStart: startMinute, currentEnd: startMinute + granularity });
+  }
+
+  function placeTask(task: Quest, minute: number) {
+    const type = (['主线', '支线', '日常'].includes(task.type) ? task.type : '日常') as TimeBlockDraft['type'];
+    const category = categoriesFor(type)[0], slot = taskSlot(minute, granularity);
+    setSelectedTask(null);
+    setDraft({title: task.title, type, categoryName: category.name, colorKey: category.colorKey, note: task.detail, startMinute: slot.start, endMinute: slot.end});
+  }
+
+  function exportDay(format: string) {
+    downloadTimeline(blocks.map(b => ({id:b.id, date, start:b.startMinute, end:b.endMinute, title:b.title, type:b.type, category:b.categoryName, color:b.colorKey, note:b.note})), format, date);
   }
 
   function beginMove(event: ReactPointerEvent, block: TimeBlockRecord) {
@@ -1650,7 +1665,12 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     <div className="star-lane-summary">{totals.map((item) => <div key={item.type} className={`summary-${item.type}`}><span>{item.type}</span><b>{Math.floor(item.minutes / 60)}<small>h</small> {item.minutes % 60}<small>m</small></b></div>)}<div className="summary-total"><span>已记录</span><b>{blocks.reduce((total, block) => total + block.endMinute - block.startMinute, 0)}<small> min</small></b></div></div>
     <div className="star-lane-toolbar"><div><span>时间刻度</span>{([10, 15, 30] as const).map((minute) => <button key={minute} className={granularity === minute ? "active" : ""} onClick={() => setGranularity(minute)}>{minute} min</button>)}</div><button className="manual-block" onClick={() => setDraft({ title: "", type: "主线", categoryName: "核心项目", colorKey: "gold", note: "", startMinute: 9 * 60, endMinute: 10 * 60 })}>＋ 手动填写</button></div>
     <div className="star-lane-layout">
-      <div className="star-timeline-shell"><div className="timeline-legend"><span>00:00</span><b>拖拽填充今日时间</b><span>24:00</span></div><div className="star-timeline-scroll" ref={scrollRef}><div className="star-hour-labels" style={{ height: totalHeight }}>{Array.from({ length: 25 }, (_, hour) => <span key={hour} style={{ top: hour / 24 * totalHeight }}>{String(hour).padStart(2, "0")}:00</span>)}</div><div className="star-timeline" ref={timelineRef} onPointerDown={beginCreate} style={{ height: totalHeight, "--slot-height": `${slotHeight}px` } as CSSProperties} role="grid" aria-label={`${date} 的 24 小时时间轨道，当前刻度 ${granularity} 分钟`}>
+      <section className="starlane-task-tray" style={{gridColumn:'1 / -1'}}>
+        <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '自动显示未完成任务。拖到轨道，或点选任务后点选时间；不会自动完成原任务。'}</p>
+        <div className="starlane-exports"><button onClick={() => void loadTimeline(date)}>刷新任务</button><button disabled={!blocks.length} onClick={() => exportDay('csv')}>导出当天 CSV</button><button disabled={!blocks.length} onClick={() => exportDay('ics')}>导出当天 ICS</button></div>
+        <div className="starlane-task-list">{availableTasks(data.quests).map((task: Quest) => <button className="starlane-task-item" key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); scrollRef.current?.scrollIntoView({behavior:'smooth',block:'center'});}}><b>{task.title}</b><small>{task.type} · {task.dueAt?.slice(0,10) ?? '未设日期'}</small></button>)}{!availableTasks(data.quests).length && <p>暂无未完成任务，可先到任务页添加。</p>}</div>
+      </section>
+      <div className="star-timeline-shell"><div className="timeline-legend"><span>00:00</span><b>拖拽填充今日时间</b><span>24:00</span></div><div className="star-timeline-scroll" ref={scrollRef}><div className="star-hour-labels" style={{ height: totalHeight }}>{Array.from({ length: 25 }, (_, hour) => <span key={hour} style={{ top: hour / 24 * totalHeight }}>{String(hour).padStart(2, "0")}:00</span>)}</div><div className="star-timeline" ref={timelineRef} onDragOver={event => { if (event.dataTransfer.types.includes('application/x-starcamp-task')) event.preventDefault(); }} onDrop={event => { event.preventDefault(); const task = data.quests.find(q => q.id === Number(event.dataTransfer.getData('application/x-starcamp-task'))); if (task && !task.done) placeTask(task, minuteFromPointer(event.clientY)); }} onPointerDown={beginCreate} style={{ height: totalHeight, "--slot-height": `${slotHeight}px` } as CSSProperties} role="grid" aria-label={`${date} 的 24 小时时间轨道，当前刻度 ${granularity} 分钟`}>
         {date === today && <i className="star-now-line" style={{ top: currentMinute / granularity * slotHeight }}><span>现在</span></i>}
         {blocks.map((block) => {
           const activeDrag = drag?.block?.id === block.id;
