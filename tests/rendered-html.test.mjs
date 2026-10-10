@@ -316,7 +316,7 @@ test("calendar synchronization imports only the sync date and future tasks", asy
   assert.match(gameRoute, /parseCalendar\(calendarText, rangeDays, body\.clientDate\)/);
 });
 
-test("gates live calendar binding behind a seven-day trial and paid passes", async () => {
+test("gates calendar tools behind paid passes and preserves billing infrastructure", async () => {
   const [client, access, connectRoute, checkoutRoute, webhookRoute, googleHelper, gameRoute, schema, migration, billingMigration] = await Promise.all([
     readFile(new URL("app/GameClient.tsx", root), "utf8"),
     readFile(new URL("app/calendar-access.ts", root), "utf8"),
@@ -330,20 +330,20 @@ test("gates live calendar binding behind a seven-day trial and paid passes", asy
     readFile(new URL("drizzle/0009_amusing_ender_wiggin.sql", root), "utf8"),
   ]);
 
-  assert.match(client, /先免费体验 7 天/);
+  assert.match(client, /开通通行证，解锁日历导入与时轨导出/);
   assert.match(client, /price: "HK\$8"/);
   assert.match(client, /price: "HK\$20"/);
   assert.match(client, /price: "HK\$160"/);
   assert.match(client, /由 Waffo 提供安全收款/);
-  assert.match(client, /领取 Lv\.100 一年奖励/);
-  assert.match(client, /手动上传 ICS 永久免费/);
+  assert.match(client, /五个永久免费 VIP 名额除外/);
+  assert.doesNotMatch(client, /手动上传 ICS 永久免费/);
   assert.match(access, /days: 7/);
   assert.match(access, /days: 30/);
   assert.match(access, /days: 365/);
   assert.match(access, /365 \* DAY_MS/);
   assert.match(access, /levelFromXp\(row\?\.xp \?\? 0\) >= 100/);
-  assert.match(connectRoute, /startTrial: true/);
-  assert.match(googleHelper, /requireCalendarAccess\(email\)/);
+  assert.doesNotMatch(connectRoute, /startTrial: true/);
+  assert.match(googleHelper, /requirePaidTools\(email\)/);
   assert.match(gameRoute, /claimCalendarLevelReward/);
   assert.match(checkoutRoute, /api\.waffo\.ai\/v1\/actions\/checkout\/create-session/);
   assert.match(checkoutRoute, /productType: "onetime"/);

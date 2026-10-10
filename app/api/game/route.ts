@@ -4,6 +4,8 @@ import { claimLevel100CalendarReward, getCalendarAccess } from "../../calendar-a
 import { GoogleCalendarReconnectRequired, syncGoogleCalendar } from "../../google-calendar";
 import { getPremiumProgram, updatePremiumFreeSlots } from "../../premium-access";
 import { validDate } from '../../../vercel-proxy/starlane-data.mjs';
+import {paidToolsAccess} from '../../paid-tools';
+import {PREMIUM_MESSAGE} from '../../../vercel-proxy/premium-policy.mjs';
 
 type UserRow = {
   email: string;
@@ -1405,6 +1407,9 @@ export async function POST(request: Request) {
     };
     const db = env.DB;
 
+    if(['importCalendar','syncGoogleCalendar'].includes(body.action??'')&&!await paidToolsAccess(identity.email)){
+      return Response.json({error:PREMIUM_MESSAGE,code:'premium_required'},{status:403});
+    }
     if (body.action === "createTimeBlock" || body.action === "updateTimeBlock") {
       const blockDate = validClientDate(body.blockDate ?? body.timelineDate ?? body.clientDate);
       const rawStartMinute = Number(body.startMinute);

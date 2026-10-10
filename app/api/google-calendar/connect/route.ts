@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getAppUser } from "../../../app-auth";
-import { requireCalendarAccess } from "../../../calendar-access";
+import { requirePaidTools } from "../../../paid-tools";
 import { googleAuthorizationUrl } from "../../../google-calendar";
 
 function stateToken(syncFromDate: string) {
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   try {
     const identity = await getAppUser(request);
     if (!identity) return Response.redirect(new URL("/", request.url));
+    await requirePaidTools(identity.email);
     const requestedDate = new URL(request.url).searchParams.get("from") || "";
     const syncFromDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
       ? requestedDate
@@ -27,7 +28,6 @@ export async function GET(request: Request) {
         VALUES (?, ?, ?)
       `).bind(state, identity.email, new Date(Date.now() + 10 * 60 * 1000).toISOString()),
     ]);
-    await requireCalendarAccess(identity.email, { startTrial: true });
     return Response.redirect(authorizationUrl);
   } catch {
     return Response.redirect(new URL("/?calendar=configuration-error", request.url));

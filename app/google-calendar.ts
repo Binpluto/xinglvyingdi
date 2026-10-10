@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { requireCalendarAccess } from "./calendar-access";
+import { requirePaidTools } from "./paid-tools";
 
 type RuntimeEnv = {
   DB: D1Database;
@@ -259,7 +259,7 @@ async function fetchChanges(token: string, syncToken: string | null, syncFromDat
 }
 
 export async function syncGoogleCalendar(email: string, requestedSyncDate?: string) {
-  await requireCalendarAccess(email);
+  await requirePaidTools(email);
   const syncFromDate = validSyncDate(requestedSyncDate);
   const connection = await runtime().DB.prepare(`
     SELECT user_email, refresh_token, google_email, sync_token, last_synced_at

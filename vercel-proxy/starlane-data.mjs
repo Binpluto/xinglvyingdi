@@ -81,3 +81,9 @@ export function downloadTimeline(blocks, format, date) {
   link.href = url; link.download = `星轨时序-${date}.${format}`; document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+export async function downloadAuthorizedTimeline(start,end,format) {
+  const response=await fetch(`/api/starlane-export?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&format=${format}`,{credentials:'same-origin',cache:'no-store'});
+  if(!response.ok){const error=await response.json();throw new Error(error.error||'导出失败');}
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=`星轨时序-${start}_${end}.${format}`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+}

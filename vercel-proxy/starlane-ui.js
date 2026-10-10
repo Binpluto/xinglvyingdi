@@ -1,4 +1,5 @@
-import { availableTasks, taskSlot, downloadTimeline, dateRange, filterRange, shiftCalendarDate } from './starlane-data.mjs?v=3';
+import { availableTasks, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate } from './starlane-data.mjs?v=4';
+import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
 
 (() => {
   const BLOCK_PREFIX = "▥时轨|";
@@ -179,7 +180,7 @@ import { availableTasks, taskSlot, downloadTimeline, dateRange, filterRange, shi
     [10, 15, 30].forEach((step) => { const button = el("button", granularity === step ? "active" : "", `${step} min`); button.onclick = () => { granularity = step; renderPage(); }; steps.append(button); });
     const manual = el("button", "manual", "＋ 手动填写"); manual.onclick = () => openEditor({ date: selectedDate, start: 540, end: 600, title: "", type: "主线", category: "核心项目", color: "gold", note: "" });
     toolbar.append(steps, manual);
-    const exportButton=el('button','','导出日程'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
+    const exportButton=el('button','',hasPaidTools(data)?'导出日程':'导出日程 · 付费'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel = el("section", "starlane-compat-timeline-panel");
     timelinePanel.append(el("div", "starlane-compat-legend", viewMode==='week' ? `${range.start} — ${range.end} · 周一至周日（手机可左右滑动）` : "拖拽空白区域，快速记录一段时间"));
@@ -305,6 +306,7 @@ import { availableTasks, taskSlot, downloadTimeline, dateRange, filterRange, shi
     creator.append(typeSelect, name, palette, save); panel.append(creator); return panel;
   }
   function openExportPanel() {
+    if(!hasPaidTools(data)){notify(PREMIUM_MESSAGE);return;}
     const backdrop=el('div','starlane-compat-editor-backdrop'), panel=el('section','starlane-compat-editor');
     panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','导出日程');
     const close=el('button','close','×');close.setAttribute('aria-label','关闭导出');close.onclick=()=>backdrop.remove();
@@ -320,7 +322,7 @@ import { availableTasks, taskSlot, downloadTimeline, dateRange, filterRange, shi
     [['day','当天'],['week','本周'],['month','本月']].forEach(([unit,label])=>{const button=el('button','',label);button.onclick=()=>{const range=dateRange(selectedDate,unit);start.value=range.start;end.value=range.end;update();};shortcuts.append(button);});
     ['csv','ics'].forEach(format=>{const button=el('button','save',`导出 ${format.toUpperCase()}`);button.onclick=async()=>{
       button.disabled=true;status.textContent='正在读取最新记录…';
-      try{await fetchData();const rows=filterRange(parseBlocks(),start.value,end.value);if(!rows.length)throw new Error('所选范围暂无时间块');downloadTimeline(rows,format,`${start.value}_${end.value}`);update();}catch(error){status.textContent=error.message;button.disabled=false;}
+      try{await downloadAuthorizedTimeline(start.value,end.value,format);update();}catch(error){status.textContent=error.message;button.disabled=false;}
     };actions.append(button);});
     start.onchange=end.onchange=update;
     panel.append(close,heading,note,shortcuts,startLabel,endLabel,status,actions);backdrop.append(panel);document.body.append(backdrop);update();start.focus();

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { appPublicOrigin } from "../../../app-auth";
-import { requireCalendarAccess } from "../../../calendar-access";
+import { requirePaidTools } from "../../../paid-tools";
 import {
   encryptRefreshToken,
   exchangeAuthorizationCode,
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     `).bind(state, new Date().toISOString()).first<{ user_email: string }>();
     await env.DB.prepare("DELETE FROM google_oauth_states WHERE state = ?").bind(state).run();
     if (!savedState) throw new Error("授权请求已过期");
-    await requireCalendarAccess(savedState.user_email);
+    await requirePaidTools(savedState.user_email);
     const syncFromDate = state.match(/\.(\d{4}-\d{2}-\d{2})$/)?.[1];
     const tokens = await exchangeAuthorizationCode(request, code);
     const googleEmail = await googleCalendarIdentity(tokens.access_token!);
