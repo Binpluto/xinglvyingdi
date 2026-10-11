@@ -11,6 +11,7 @@ import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
 import {installTravelerGuide} from '../vercel-proxy/traveler-guide.mjs';
 import '../vercel-proxy/traveler-guide.css';
 import {defaultTaskColor,taskTrayStyle} from '../vercel-proxy/sequence-colors.mjs';
+import {overlappingBlocks,overlapKey,overlapMessage} from '../vercel-proxy/overlap-policy.mjs';
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
 type Member = { display_name: string; email: string; xp: number; focus_minutes: number; strength: number; avatar_key: string; custom_avatar: string | null };
@@ -1571,8 +1572,10 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
 
   async function saveBlock() {
     if (!draft || !draft.title.trim() || saving) return;
+    const conflicts=overlappingBlocks({...draft,blockDate:draft.blockDate||date},visibleBlocks);
+    if(conflicts.length&&!window.confirm(overlapMessage(conflicts)))return;
     setSaving(true);
-    const saved = await act({ action: draft.id ? "updateTimeBlock" : "createTimeBlock", blockId: draft.id, blockDate: date, timelineDate: date, ...draft, title: draft.title.trim() }, draft.id ? "时间块已更新" : "新的时间块已写入时序");
+    const saved = await act({ action: draft.id ? "updateTimeBlock" : "createTimeBlock", blockId: draft.id, blockDate: date, timelineDate: date, ...draft, title: draft.title.trim(),allowOverlap:conflicts.length>0,overlapKeys:conflicts.map(overlapKey) }, draft.id ? "时间块已更新" : "新的时间块已写入时序");
     if (saved) setDraft(null);
     setSaving(false);
   }
@@ -1583,6 +1586,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     if (removed) setDraft(null);
     setSaving(false);
   }
+  async function moveWithOverlapConsent(block:TimeBlockRecord){const conflicts=overlappingBlocks(block,visibleBlocks);if(conflicts.length&&!window.confirm(overlapMessage(conflicts)))return;await act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date,allowOverlap:conflicts.length>0,overlapKeys:conflicts.map(overlapKey)},'时间块已更新');}
 
 
   async function changeDate(nextDate: string) {
@@ -1609,7 +1613,7 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
     <div className="star-lane-summary">{totals.map((item) => <div key={item.type} className={`summary-${item.type}`}><span>{item.type}</span><b>{Math.floor(item.minutes / 60)}<small>h</small> {item.minutes % 60}<small>m</small></b></div>)}<div className="summary-total"><span>已记录</span><b>{visibleBlocks.reduce((total, block) => total + block.endMinute - block.startMinute, 0)}<small> min</small></b></div></div>
     <div className="star-lane-toolbar"><div><span>时间刻度</span>{([10, 15, 30] as const).map((minute) => <button key={minute} className={granularity === minute ? "active" : ""} onClick={() => setGranularity(minute)}>{minute} min</button>)}</div><button className="manual-block" onClick={() => setDraft({ title: "", type: "主线", categoryName: "核心项目", colorKey: "gold", note: "", startMinute: 9 * 60, endMinute: 10 * 60 })}>＋ 手动填写</button></div>
     <div className="star-lane-layout">
-   {viewMode==='week' && weekStatus ? <p role="status">{weekStatus}</p> : <StarTimelineView date={date} step={granularity} mode={viewMode} blocks={visibleBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:categoriesFor('主线')[0]?.name||'未分类',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void act({...block,action:'updateTimeBlock',blockId:block.id,timelineDate:date},'时间块已更新')} onDay={day=>{setViewMode('day');void changeDate(day);}} />}
+   {viewMode==='week' && weekStatus ? <p role="status">{weekStatus}</p> : <StarTimelineView date={date} step={granularity} mode={viewMode} blocks={visibleBlocks} onCreate={(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);}else setDraft({blockDate:day,title:'',type:'主线',categoryName:categoriesFor('主线')[0]?.name||'未分类',colorKey:'gold',note:'',startMinute:start,endMinute:end});}} onTask={(id,day,minute)=>{const task=data.quests.find(q=>q.id===id);if(task)placeTask(task,minute,day);}} onEdit={editBlock} onUpdate={block=>void moveWithOverlapConsent(block)} onDay={day=>{setViewMode('day');void changeDate(day);}} />}
       <aside className="star-lane-sidebar">
       <section className="starlane-task-tray">
         <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '当日已完成置顶；仅显示已到时间的当日及过往任务。未来任务隐藏，未设时间的最后。已完成任务可补记，不重复计奖。'}</p>

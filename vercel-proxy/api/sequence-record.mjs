@@ -12,5 +12,5 @@ export default async function handler(req,res){
     const data=await response.json();if(!response.ok){const error=new Error(data.error||'保存失败');error.status=response.status;throw error;}return data;
   }
   try{return res.json(await persistSequence({get:()=>call(),act:call},input));}
-  catch(error){res.statusCode=error.status||400;return res.json({error:error.message||'记录未完成，请重试'});}
+  catch(error){res.statusCode=error.status||400;return res.json({error:error.message||'记录未完成，请重试',...(error.conflicts?{code:'overlap_confirmation_required',conflicts:error.conflicts}:{})});}
 }

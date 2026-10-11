@@ -1,8 +1,9 @@
 import { availableTasks, completedOnDate, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=11';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createVerticalTimeline} from './starlane-timeline.mjs?v=15';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=17';
 import {sequenceBlocks} from './sequence-records.mjs?v=10';
 import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
+import {overlappingBlocks,overlapKey,overlapMessage} from './overlap-policy.mjs?v=17';
 
 import {sequenceCategories,createCategoryManager} from './sequence-categories.mjs?v=12';
 
@@ -111,10 +112,12 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     if(savingSequence)throw new Error('上一条记录正在同步，请稍候');
     if (!block.title.trim()) throw new Error("请填写时间块名称");
     if (block.end - block.start < 10) throw new Error("时间块至少需要 10 分钟");
-    if (overlaps(block, block.id)) throw new Error("这段时间已有安排，请调整时间");
+    const conflicts=overlappingBlocks(block,parseBlocks());
+    if(conflicts.length&&!window.confirm(overlapMessage(conflicts)))throw new Error('已取消，原记录未更改');
+    let consent={allowOverlap:conflicts.length>0,overlapKeys:conflicts.map(overlapKey)};
     savingSequence=true;notify('正在保存时序记录…');
-    try{const response=await fetch('/api/sequence-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...block,recordKey:block.recordKey||crypto.randomUUID()})});
-    const json=await response.json();if(!response.ok)throw new Error(json.error||'保存失败，请重试');data=json;hostNeedsRefresh=true;
+    try{const payload={...block,recordKey:block.recordKey||crypto.randomUUID()};let json;
+    for(let attempt=0;attempt<3;attempt++){const response=await fetch('/api/sequence-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...payload,...consent})});json=await response.json();if(response.ok)break;if(json.code==='overlap_confirmation_required'&&attempt<2){if(!window.confirm(overlapMessage(json.conflicts)))throw new Error('已取消，原记录未更改');consent={allowOverlap:true,overlapKeys:json.conflicts.map(overlapKey)};continue;}throw new Error(json.error||'保存失败，请重试');}data=json;hostNeedsRefresh=true;
     window.dispatchEvent(new CustomEvent('starcamp:game-data',{detail:json}));
     notify('时序记录已保存，对应任务已完成');
     renderPage();

@@ -7,6 +7,7 @@ import { validDate } from '../../../vercel-proxy/starlane-data.mjs';
 import {paidToolsAccess} from '../../paid-tools';
 import {PREMIUM_MESSAGE} from '../../../vercel-proxy/premium-policy.mjs';
 import {sequenceColor} from '../../../vercel-proxy/sequence-colors.mjs';
+import {overlapConsent} from '../../../vercel-proxy/overlap-policy.mjs';
 
 type UserRow = {
   email: string;
@@ -1416,6 +1417,8 @@ export async function POST(request: Request) {
       parentType?: string;
       colorKey?: string;
       colorCustom?: boolean;
+      allowOverlap?: boolean;
+      overlapKeys?: string[];
       note?: string;
     };
     const db = env.DB;
@@ -1446,13 +1449,12 @@ export async function POST(request: Request) {
       if (body.action === "updateTimeBlock" && (!Number.isSafeInteger(blockId) || blockId <= 0)) {
         return Response.json({ error: "时间块不存在" }, { status: 404 });
       }
-      const overlap = await db.prepare(`
-        SELECT id FROM time_blocks
+      const overlaps = await db.prepare(`
+        SELECT id,block_date AS date,start_minute AS start,end_minute AS end,title FROM time_blocks
         WHERE user_email = ? AND block_date = ? AND id != ?
           AND start_minute < ? AND end_minute > ?
-        LIMIT 1
-      `).bind(identity.email, blockDate, blockId, endMinute, startMinute).first();
-      if (overlap) return Response.json({ error: "这段时间已有安排，请调整开始或结束时间" }, { status: 409 });
+      `).bind(identity.email, blockDate, blockId, endMinute, startMinute).all();
+      if(!overlapConsent(body,overlaps.results))return Response.json({error:'检测到时间重叠，请确认后再保存',code:'overlap_confirmation_required',conflicts:overlaps.results},{status:409});
       if (body.action === "createTimeBlock") {
         const inserted=await db.prepare(`
           INSERT INTO time_blocks
