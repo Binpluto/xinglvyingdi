@@ -57,6 +57,7 @@ function injectVercelEnhancements(html) {
     '<link rel="stylesheet" href="/starlane-full-timeline.css?v=15">',
     '<link rel="stylesheet" href="/traveler-guide.css?v=9">',
     '<link rel="stylesheet" href="/first-action.css?v=18">',
+    '<link rel="stylesheet" href="/task-guidance.css?v=19">',
     '<script defer src="/energy-ui.js?v=2"></script>',
     '<script defer src="/medal-ui.js?v=1"></script>',
     '<script defer src="/monthly-ui.js?v=1"></script>',
@@ -64,6 +65,7 @@ function injectVercelEnhancements(html) {
     '<script defer src="/mobile-reminder-ui.js?v=1"></script>',
     '<script type="module" src="/starlane-ui.js?v=17"></script>',
     '<script type="module" src="/guide-entry.js?v=18"></script>',
+    '<script type="module" src="/task-guidance-entry.js?v=19"></script>',
     '<script defer src="/premium-ui.js?v=4"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
   ].join("");
