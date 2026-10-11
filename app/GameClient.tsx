@@ -13,6 +13,8 @@ import '../vercel-proxy/traveler-guide.css';
 import '../vercel-proxy/first-action.css';
 import {installTaskGuidance} from '../vercel-proxy/task-guidance.mjs';
 import '../vercel-proxy/task-guidance.css';
+import {installGentleMode} from '../vercel-proxy/gentle-mode.mjs';
+import '../vercel-proxy/gentle-mode.css';
 import {defaultTaskColor,taskTrayStyle} from '../vercel-proxy/sequence-colors.mjs';
 import {overlappingBlocks,overlapKey,overlapMessage} from '../vercel-proxy/overlap-policy.mjs';
 
@@ -517,6 +519,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
   useEffect(() => { void load(); }, []);
   useEffect(()=>{installTravelerGuide();},[]);
   useEffect(()=>{installTaskGuidance();},[]);
+  useEffect(()=>{installGentleMode();const applied=(event:Event)=>{const next=(event as CustomEvent<GameData>).detail;if(next?.user?.email===identity.email){event.preventDefault();setData(next);setTab('任务');}};window.addEventListener('starcamp:gentle-applied',applied);return()=>window.removeEventListener('starcamp:gentle-applied',applied);},[identity.email]);
   useEffect(()=>{const created=(event:Event)=>{const update=(event as CustomEvent<GameData>).detail;if(!update?.user||update.user.email!==identity.email)return;event.preventDefault();setData(update);setMonthGoalDismissed(true);setTab('任务');if(update.dailyDeparture){setFocusMinutes(update.dailyDeparture.focusGoalMinutes);setTimer(update.dailyDeparture.focusGoalMinutes*60);}};window.addEventListener('starcamp:first-action-created',created);return()=>window.removeEventListener('starcamp:first-action-created',created);},[identity.email]);
   useEffect(() => {
     const savedAlert = window.localStorage.getItem("starcamp-focus-alert");

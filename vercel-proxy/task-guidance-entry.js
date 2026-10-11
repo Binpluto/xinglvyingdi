@@ -1,2 +1,2 @@
-import {installTaskGuidance} from './task-guidance.mjs?v=19';
+import {installTaskGuidance} from './task-guidance.mjs?v=20';
 installTaskGuidance();

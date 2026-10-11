@@ -67,6 +67,6 @@ export function taskMetadata(task,context={}){
   if(matched&&goalNames[context.goal])reasons.push(known.goals.includes(context.goal)||known.goals.includes('all')?`这项行动可支持你选择的「${goalNames[context.goal]}」方向。`:`这项更偏向生活维护或其他方向，与「${goalNames[context.goal]}」不直接对应，请自行判断是否适合。`);
   const warnings=[];
   if(range&&Number(context.budget)>0&&range[0]>Number(context.budget))warnings.push(`预计全程超过你设置的每日 ${context.budget} 分钟启动预算；可另选时段，起步不等于整项完成。`);
-  if(energy&&context.energy==='low'&&energy!=='low')warnings.push('你在每日启程中选择了低精力，这项任务更适合状态较充足时安排；本轮不会自动提高或替换任务。');
+  if(energy&&context.energy==='low'&&energy!=='low')warnings.push('你在每日启程中选择了低精力，这项任务更适合状态较充足时安排；可另选时间，或主动改选轻装行动，不会自动改写任务。');
   return {duration,range,timeBasis:explicit?'来自任务要求':range?'模板估算 · 以实际为准':'请按修改后的内容自行估时',energy,energyLabel:energy?energyLabels[energy]:'精力要求待确认',start:matched?known.start:'先读一遍完成标准，选出一个现在能开始的具体动作。',startNote:'起步建议，不会自动计时、完成任务或领取奖励。',reason:reasons.join(''),warnings,matched,selectionNote:'系统任务仍按原有三档及两周去重规则分配；此处解释行动用途和适配情况，不代表已经按你的目标重排。'};
 }

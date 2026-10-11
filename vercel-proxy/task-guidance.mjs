@@ -1,4 +1,4 @@
-import {taskMetadata} from './system-task-meta.mjs?v=19';
+import {taskMetadata} from './system-task-meta.mjs?v=20';
 import {recoverLaunchProfile} from './monthly-launch-state.mjs?v=18';
 const el=(tag,cls,text)=>{const node=document.createElement(tag);node.className=cls||'';if(text!==undefined)node.textContent=text;return node;};
 export const feedbackReasons=[['goal','与当前目标不相关'],['time','需要的时间太长'],['energy','当前精力不适合'],['done','已经做过类似行动'],['other','其他原因 / 暂不需要']];
@@ -16,6 +16,7 @@ export function createTaskGuidance(task,context={},options={}){
   const record=el('button','','记录反馈');record.type='button';record.disabled=!select.value;select.onchange=()=>record.disabled=!select.value;record.onclick=()=>options.onFeedback?.({decision:'decline',reason:select.value});feedbackBody.append(select,record,el('p','','仅记录推荐反馈，不删除或替换任务，不改变积分。'));feedback.append(feedbackBody);actions.append(feedback);panel.append(actions);
   const status=el('p','task-guidance-status',task.done?'完成状态以原任务记录为准。':state.decision==='adopt'?'已记录选择。起步或专注后，仍需按原完成标准确认任务。':state.decision==='decline'?`已记录：${feedbackReasons.find(([id])=>id===state.reason)?.[1]||'暂不采用'}。任务仍保留。`:meta.startNote);status.setAttribute('role','status');panel.append(status);
   panel.append(el('small','task-guidance-storage',options.preview?'验收预览：选择、反馈和完成仅为示例，不保存真实账号。':'选择与反馈仅保存在当前浏览器；任务完成仍以云端任务记录为准。'));
+  if(!task.done&&(options.onReplace||options.onDefer)){const choices=el('div','gentle-task-actions');if(options.onReplace){const replace=el('button','','换个更适合的');replace.onclick=options.onReplace;choices.append(replace);}if(options.onDefer){const defer=el('button','','今天不适合');defer.onclick=options.onDefer;choices.append(defer);}panel.append(choices);}
   return panel;
 }
 export function guidanceContext(data){
@@ -40,12 +41,14 @@ export function installTaskGuidance(){
       const title=row.querySelector('.quest-text h4')?.textContent;
       const candidates=(data.quests||[]).filter(q=>/^system-daily-(easy|medium|hard)$/.test(q.source||'')&&(row.dataset.questId?String(q.id)===row.dataset.questId:q.title===title&&row.querySelector('.calendar-source')?.classList.contains(`source-${q.source}`)));
       const old=row.querySelector('.task-guidance');if(candidates.length!==1){old?.remove();return;}
-      const task=candidates[0],feedback=stored(key(task)),signature=JSON.stringify([task.title,task.detail,task.done,context,feedback]);if(old?.dataset.signature===signature)return;
-      const panel=createTaskGuidance(task,context,{feedback,onFeedback:value=>save(key(task),{...value,at:new Date().toISOString()})});if(!panel)return;
+      const task=candidates[0],feedback=stored(key(task)),gentle=window.starcampGentle&&String(task.dueAt||'').slice(0,10)===day(),signature=JSON.stringify([task.title,task.detail,task.done,context,feedback,gentle]);if(old?.dataset.signature===signature)return;
+      row.dataset.questId=String(task.id);
+      const panel=createTaskGuidance(task,context,{feedback,onFeedback:value=>save(key(task),{...value,at:new Date().toISOString()}),...(gentle?{onReplace:()=>window.dispatchEvent(new CustomEvent('starcamp:gentle-replace',{detail:{taskId:task.id}})),onDefer:()=>window.dispatchEvent(new CustomEvent('starcamp:gentle-defer',{detail:{taskId:task.id}}))}:{})});if(!panel)return;
       panel.dataset.signature=signature;const wasOpen=old?.querySelector('.task-guidance-why')?.open;old?.remove();panel.querySelector('.task-guidance-why').open=!!wasOpen;row.querySelector('.quest-text')?.append(panel);
     });
   }
   function schedule(){if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;render();});}
   window.addEventListener('starcamp:game-data',e=>{data=e.detail;schedule();});window.addEventListener('starcamp:session-reset',()=>{data=null;memory.clear();document.querySelectorAll('.task-guidance').forEach(n=>n.remove());});
+  window.addEventListener('starcamp:gentle-ready',schedule);
   new MutationObserver(schedule).observe(document.documentElement,{childList:true,subtree:true});schedule();
 }
