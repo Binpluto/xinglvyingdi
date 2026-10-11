@@ -44,3 +44,10 @@ test('ambiguous old names and foreign task ids are not silently linked',async()=
   assert.equal(sequenceBlocks(g.state.quests)[0].questId,null);
   await assert.rejects(persistSequence(g,{...input,questId:999}));assert.equal(g.state.quests.length,3);
 });
+test('editing a completed record needs only one read and one write; unchanged retry needs just one read',async()=>{
+  const g=fake([{id:1,title:'学习',detail:'说明',type:'主线',done:1}]);await persistSequence(g,{...input,questId:1});
+  const block=sequenceBlocks(g.state.quests)[0];let reads=0,writes=0;
+  const counted={get:()=>{reads++;return g.get();},act:p=>{writes++;return g.act(p);}};
+  await persistSequence(counted,{...input,...block,end:660});assert.equal(reads,1);assert.equal(writes,1);
+  reads=0;writes=0;await persistSequence(counted,{...input,...block,end:660});assert.equal(reads,1);assert.equal(writes,0);
+});

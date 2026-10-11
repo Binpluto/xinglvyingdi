@@ -1663,11 +1663,9 @@ export async function POST(request: Request) {
         WHERE id = ? AND user_email = ?
       `).bind(title, detail || "由旅行者亲自整理的任务说明", type, body.questId, identity.email).run();
     } else if (body.action === "deleteQuest") {
-      const quest = await db.prepare("SELECT 1 FROM quests WHERE id = ? AND user_email = ?")
-        .bind(body.questId, identity.email).first();
-      if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
-      await db.prepare("DELETE FROM quests WHERE id = ? AND user_email = ?")
+      const removed = await db.prepare("DELETE FROM quests WHERE id = ? AND user_email = ?")
         .bind(body.questId, identity.email).run();
+      if(!Number(removed.meta.changes))return Response.json({ error: "任务不存在" }, { status: 404 });
     } else if (body.action === "batchDeleteQuests") {
       const questIds = Array.isArray(body.questIds)
         ? [...new Set(body.questIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 100)

@@ -26,6 +26,10 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
   const scrollPositions = new Map();
   let disposeTimeline=null;
   let hostNeedsRefresh=false;
+  let dataAt=0,fetchingData=null,savingSequence=false;
+  const pendingDeletedBlocks=new Set();
+  window.addEventListener('starcamp:data-invalidated',()=>{dataAt=0;});
+  window.addEventListener('starcamp:game-data',event=>{if(event.detail?.user&&Array.isArray(event.detail.quests)){data=event.detail;dataAt=Date.now();}});
 
   function localDateKey(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -58,11 +62,13 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       if (text.includes("▥时轨") || text.includes("▥分类")) quest.style.display = "none";
     });
   }
-  async function fetchData() {
-    const response = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`, { credentials: "same-origin" });
-    if (!response.ok) throw new Error("时序数据读取失败");
-    data = await response.json();
-    return data;
+  async function fetchData(force=false) {
+    if(!force){const shared=window.starcampTransport?.peek();if(shared){data=shared;dataAt=Date.now();return data;}if(data&&Date.now()-dataAt<8000)return data;}
+    if(fetchingData)return fetchingData;
+    fetchingData=(async()=>{const response = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`, { credentials: "same-origin",...(force?{cache:'no-store'}:{}) });
+      if (!response.ok) throw new Error("时序数据读取失败");
+      data = await response.json();dataAt=Date.now();return data;})();
+    try{return await fetchingData;}finally{fetchingData=null;}
   }
   async function api(payload) {
     const response = await fetch("/api/game", {
@@ -76,7 +82,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     return json;
   }
   function parseBlocks() {
-    return sequenceBlocks(data?.quests||[]);
+    return sequenceBlocks(data?.quests||[]).filter(block=>!pendingDeletedBlocks.has(block.id));
   }
   function parseCategories(type) {return sequenceCategories(data?.quests||[],type);}
   function payloadFor(block) {
@@ -95,19 +101,24 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     return parseBlocks().some((item) => item.date === block.date && item.id !== excludeId && item.start < block.end && item.end > block.start);
   }
   async function saveBlock(block) {
+    if(savingSequence)throw new Error('上一条记录正在同步，请稍候');
     if (!block.title.trim()) throw new Error("请填写时间块名称");
     if (block.end - block.start < 10) throw new Error("时间块至少需要 10 分钟");
     if (overlaps(block, block.id)) throw new Error("这段时间已有安排，请调整时间");
-    const response=await fetch('/api/sequence-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...block,recordKey:block.recordKey||crypto.randomUUID()})});
+    savingSequence=true;notify('正在保存时序记录…');
+    try{const response=await fetch('/api/sequence-record',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...block,recordKey:block.recordKey||crypto.randomUUID()})});
     const json=await response.json();if(!response.ok)throw new Error(json.error||'保存失败，请重试');data=json;hostNeedsRefresh=true;
     window.dispatchEvent(new CustomEvent('starcamp:game-data',{detail:json}));
     notify('时序记录已保存，对应任务已完成');
     renderPage();
+    }finally{savingSequence=false;}
   }
   async function deleteBlock(id) {
-    await api({ action: "deleteQuest", questId: id });
-    notify("时间块已删除");
-    renderPage();
+    if(pendingDeletedBlocks.has(id))return;
+    pendingDeletedBlocks.add(id);renderPage();notify('正在同步删除时间块…');
+    try{await api({ action: "deleteQuest", questId: id });notify("时间块已删除");}
+    catch(error){throw new Error(`${error.message||'删除失败'}，时间块已恢复，请刷新后确认`);}
+    finally{pendingDeletedBlocks.delete(id);renderPage();}
   }
   function closePage() {
     pageOpen = false;
@@ -143,6 +154,8 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     if(pageOpen&&pageElement){mountPage();return;}
     if(opening)return;
     opening=true;
+    const navButton=document.querySelector('.starlane-nav');navButton?.setAttribute('aria-busy','true');
+    if(!data&&!window.starcampTransport?.peek())notify('正在读取时序记录…');
     const version=++navigationVersion;
     try {
       const current = await fetchData();
@@ -156,7 +169,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       mountPage();
       renderPage();
     } catch (error) { if(version===navigationVersion){closePage();notify(error instanceof Error ? error.message : "暂时无法打开时序");} }
-    finally {if(version===navigationVersion)opening=false;}
+    finally {navButton?.removeAttribute('aria-busy');if(version===navigationVersion)opening=false;}
   }
   function ensureNav() {
     hideStorageQuests();
@@ -236,7 +249,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       if(refresh.disabled)return;
       refresh.disabled=true;refresh.setAttribute('aria-busy','true');
       const spinner=el('span','sequence-refresh-spinner');spinner.setAttribute('aria-hidden','true');refresh.replaceChildren(spinner,document.createTextNode('刷新中…'));
-      try{await fetchData();renderPage();notify('任务已刷新');}
+      try{await fetchData(true);renderPage();notify('任务已刷新');}
       catch(error){notify(error.message||'刷新失败，请重试');}
       finally{refresh.disabled=false;refresh.removeAttribute('aria-busy');refresh.replaceChildren(document.createTextNode('刷新任务'));}
     };
@@ -304,14 +317,14 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     const times = el("div", "starlane-compat-time-row"); const startLabel = el("label"); startLabel.append(el("span", "", "开始"), start); const endLabel = el("label"); endLabel.append(el("span", "", "结束"), end); times.append(startLabel, endLabel);
     const categoryLabel = el("label"); categoryLabel.append(el("span", "", "细分分类"), category);
     const note = el("textarea"); note.placeholder = "记录成果、状态或下一步"; note.maxLength = 24; note.value = block.note || ""; const noteLabel = el("label"); noteLabel.append(el("span", "", "备注（可选）"), note);
-    const footer = el("footer"); if (block.id) { const remove = el("button", "delete", "删除"); remove.onclick = async () => { try { await deleteBlock(block.id); backdrop.remove(); } catch (error) { notify(error.message); } }; footer.append(remove); }
-    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到时序"); save.onclick = async () => { save.disabled = true; try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, colorCustom, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false; } }; footer.append(cancel, save);
+    const footer = el("footer"); if (block.id) { const remove = el("button", "delete", "删除"); remove.onclick = async () => { if(remove.disabled)return;remove.disabled=true;remove.textContent="删除中…";try { const deletion=deleteBlock(block.id);backdrop.remove();await deletion; } catch (error) { notify(error.message);remove.disabled=false;remove.textContent="删除"; } }; footer.append(remove); }
+    const cancel = el("button", "cancel", "取消"); cancel.onclick = () => backdrop.remove(); const save = el("button", "save", "保存到时序"); save.onclick = async () => { if(save.disabled)return;save.disabled = true;save.textContent="正在保存…";try { await saveBlock({ ...block, title: title.value, type: currentType, category: category.value, color: currentColor, colorCustom, note: note.value, start: parseTime(start.value), end: parseTime(end.value) }); backdrop.remove(); } catch (error) { notify(error.message); save.disabled = false;save.textContent="保存到时序"; } }; footer.append(cancel, save);
     const typeField = el("fieldset"); typeField.append(el("legend", "", "所属模块"), typeRow); const colorField = el("fieldset"); colorField.append(el("legend", "", "色块颜色"), colorRow,resetColor);
     dialog.append(close, header, titleLabel, typeField, times, categoryLabel, colorField, noteLabel, footer); backdrop.append(dialog); backdrop.onmousedown = (event) => { if (event.target === backdrop) backdrop.remove(); }; document.body.append(backdrop); title.focus();
   }
   let queued = false;
   async function refreshSequence(){
-    if(!pageOpen||document.visibilityState!=='visible'||document.querySelector('.starlane-compat-editor-backdrop'))return;
+    if(!pageOpen||savingSequence||document.visibilityState!=='visible'||document.querySelector('.starlane-compat-editor-backdrop'))return;
     const before=JSON.stringify(data?.quests||[]);
     try{await fetchData();if(pageOpen&&before!==JSON.stringify(data?.quests||[])&&!document.querySelector('.starlane-compat-editor-backdrop'))renderPage();}catch{}
   }

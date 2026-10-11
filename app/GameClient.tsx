@@ -1,4 +1,6 @@
 "use client";
+import '../vercel-proxy/game-transport.js';
+import '../vercel-proxy/performance-ui.css';
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { availableTasks, completedOnDate, taskSlot, dateRange, validDate } from '../vercel-proxy/starlane-data.mjs';
