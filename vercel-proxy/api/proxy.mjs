@@ -62,7 +62,7 @@ function injectVercelEnhancements(html) {
     '<script defer src="/monthly-ui.js?v=1"></script>',
     '<script defer src="/weekly-summary-ui.js?v=1"></script>',
     '<script defer src="/mobile-reminder-ui.js?v=1"></script>',
-    '<script type="module" src="/starlane-ui.js?v=15"></script>',
+    '<script type="module" src="/starlane-ui.js?v=17"></script>',
     '<script type="module" src="/guide-entry.js?v=16"></script>',
     '<script defer src="/premium-ui.js?v=4"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'

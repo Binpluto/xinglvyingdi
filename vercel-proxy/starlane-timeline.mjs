@@ -1,4 +1,5 @@
 import {dateRange,shiftCalendarDate} from './starlane-data.mjs';
+import {overlapLayout} from './overlap-policy.mjs?v=17';
 
 const label=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 const colors={jade:'#3f8d7a',gold:'#d09c3f',azure:'#4e86bd',coral:'#d97862',violet:'#8068b2',rose:'#bd6588',amber:'#bf7637',slate:'#607680'};
@@ -43,6 +44,7 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
     cancelActive=cleanup;window.addEventListener('pointermove',move);window.addEventListener('pointerup',finish,{once:true});window.addEventListener('pointercancel',cleanup,{once:true});
   }
   columns.forEach(({day,from,to})=>{
+    const layout=overlapLayout(blocks.filter(b=>b.date===day));
     const lane=el('div','full-timeline-lane');Object.assign(lane.dataset,{date:day,from:String(from),to:String(to)});laneElements.push(lane);lane.style.setProperty('--step-percent',`${step/(to-from)*100}%`);lane.style.setProperty('--hour-percent',`${60/(to-from)*100}%`);lane.setAttribute('aria-label',`${day} ${label(from)}–${label(to)} 时间轴`);
     lane.onpointerdown=e=>{if(!e.target.closest('.full-time-block'))gesture(e,lane,day,null,'create');};
     lane.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-starcamp-task')){e.preventDefault();e.dataTransfer.dropEffect='copy';if(dropPreview?.parentElement!==lane){clearDrop();dropPreview=el('div','full-timeline-preview');dropPreview.append(el('span','full-timeline-hint'));lane.append(dropPreview);}const start=minute(e,lane),end=Math.min(1440,start+Math.max(step,30));place(dropPreview,start,end,lane);dropPreview.firstChild.textContent=`${draggedTitle||'任务'} · ${label(start)}–${label(end)}`;}};
@@ -50,6 +52,7 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
     lane.ondrop=e=>{e.preventDefault();clearDrop();if(e.dataTransfer.types.includes('application/x-starcamp-task'))onTask(Number(e.dataTransfer.getData('application/x-starcamp-task')),day,minute(e,lane));};
     blocks.filter(b=>b.date===day&&clippedInterval(b.start,b.end,from,to)).forEach(block=>{
       const row=el('article','full-time-block');row.style.setProperty('--block-color',colors[block.color]||colors.jade);row.dataset.blockId=String(block.id);place(row,block.start,block.end,lane);if(block.start<from)row.classList.add('continues-before');if(block.end>to)row.classList.add('continues-after');row.title=`${label(block.start)}–${label(block.end)} ${block.title}`;
+      const position=layout.get(block.id);if(position?.columns>1){row.classList.add('overlapping-block');row.style.left=`calc(5px + (100% - 10px) * ${position.column} / ${position.columns})`;row.style.width=`calc((100% - 10px) / ${position.columns} - 2px)`;row.style.right='auto';}
       row.onpointerdown=e=>gesture(e,lane,day,block,'move');
       const button=el('button','full-time-copy');button.setAttribute('aria-label',`编辑 ${row.title}`);button.append(el('b','',`${block.start<from?'续 · ':''}${block.title}`),el('small','',`${label(block.start)}–${label(block.end)} · ${block.type}`));
       button.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onEdit(block);}};

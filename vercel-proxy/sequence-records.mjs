@@ -1,4 +1,5 @@
 import {sequenceColor,defaultTaskColor} from './sequence-colors.mjs';
+import {overlappingBlocks,overlapConsent} from './overlap-policy.mjs';
 export const BLOCK_PREFIX='▥时轨|'; // Keep existing cloud records readable after the display-name change.
 const types=['主线','支线','日常'];
 const defaults={主线:['核心项目','gold'],支线:['创作','azure'],日常:['生活整理','jade']};
@@ -29,7 +30,8 @@ export async function persistSequence(gateway,input){
   const find=()=>data.quests.find(q=>q.title.startsWith(BLOCK_PREFIX)&&(input.id?q.id===input.id:(()=>{try{return JSON.parse(q.detail).r===input.recordKey;}catch{return false;}})()));
   let record=find();if(input.id&&!record)throw new Error('记录不存在或无权修改');
   const blocks=sequenceBlocks(data.quests);
-  if(blocks.some(b=>b.id!==record?.id&&b.date===input.date&&b.start<input.end&&b.end>input.start))throw new Error('这段时间已有安排，请调整时间');
+  const conflicts=overlappingBlocks({...input,id:record?.id},blocks);
+  if(!overlapConsent(input,conflicts)){const error=new Error('检测到时间重叠，需要确认是否允许');error.status=409;error.conflicts=conflicts;throw error;}
   let meta=record?JSON.parse(record.detail):{};
   let questId=input.questId||meta.q||blocks.find(b=>b.id===record?.id)?.questId;
   if(questId&&!data.quests.some(q=>q.id===questId&&!isInternal(q)))throw new Error('关联任务不存在或无权操作');
