@@ -1655,13 +1655,11 @@ export async function POST(request: Request) {
       const detail = (body.detail ?? "").trim().slice(0, 180);
       const type = ["主线", "日常", "支线"].includes(body.type ?? "") ? body.type! : "支线";
       if (title.length < 2) return Response.json({ error: "任务名称至少需要 2 个字" }, { status: 400 });
-      const quest = await db.prepare("SELECT 1 FROM quests WHERE id = ? AND user_email = ?")
-        .bind(body.questId, identity.email).first();
-      if (!quest) return Response.json({ error: "任务不存在" }, { status: 404 });
-      await db.prepare(`
+      const updated = await db.prepare(`
         UPDATE quests SET title = ?, detail = ?, type = ?
         WHERE id = ? AND user_email = ?
       `).bind(title, detail || "由旅行者亲自整理的任务说明", type, body.questId, identity.email).run();
+      if(!Number(updated.meta.changes))return Response.json({ error: "任务不存在" }, { status: 404 });
     } else if (body.action === "deleteQuest") {
       const removed = await db.prepare("DELETE FROM quests WHERE id = ? AND user_email = ?")
         .bind(body.questId, identity.email).run();

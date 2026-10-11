@@ -28,6 +28,12 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
   let hostNeedsRefresh=false;
   let dataAt=0,fetchingData=null,savingSequence=false;
   const pendingDeletedBlocks=new Set();
+  const pendingQuestEdits=new Map();
+  function visibleQuests(){return (data?.quests||[]).map(q=>{const edit=pendingQuestEdits.get(q.id);return edit?{...q,title:edit.payload.title,detail:edit.payload.detail,type:edit.payload.type}:q;});}
+  function repaintPending(){if(pageOpen&&!document.querySelector('.starlane-compat-editor-backdrop'))renderPage();}
+  window.addEventListener('starcamp:quest-edit-pending',event=>{const {payload,previous,token}=event.detail;if(!data&&previous)data=previous;pendingQuestEdits.set(payload.questId,{payload,token});repaintPending();});
+  window.addEventListener('starcamp:quest-edit-settled',event=>{const {questId,token}=event.detail;if(pendingQuestEdits.get(questId)?.token!==token)return;pendingQuestEdits.delete(questId);repaintPending();});
+  window.addEventListener('starcamp:session-reset',()=>{pendingQuestEdits.clear();data=null;dataAt=0;if(pageOpen||opening)closePage();});
   window.addEventListener('starcamp:data-invalidated',()=>{dataAt=0;});
   window.addEventListener('starcamp:game-data',event=>{if(event.detail?.user&&Array.isArray(event.detail.quests)){data=event.detail;dataAt=Date.now();}});
 
@@ -63,6 +69,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     });
   }
   async function fetchData(force=false) {
+    if(!force&&pendingQuestEdits.size&&data)return data;
     if(!force){const shared=window.starcampTransport?.peek();if(shared){data=shared;dataAt=Date.now();return data;}if(data&&Date.now()-dataAt<8000)return data;}
     if(fetchingData)return fetchingData;
     fetchingData=(async()=>{const response = await fetch(`/api/game?clientDate=${localDateKey(new Date())}`, { credentials: "same-origin",...(force?{cache:'no-store'}:{}) });
@@ -82,7 +89,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     return json;
   }
   function parseBlocks() {
-    return sequenceBlocks(data?.quests||[]).filter(block=>!pendingDeletedBlocks.has(block.id));
+    return sequenceBlocks(visibleQuests()).filter(block=>!pendingDeletedBlocks.has(block.id));
   }
   function parseCategories(type) {return sequenceCategories(data?.quests||[],type);}
   function payloadFor(block) {
@@ -217,7 +224,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     const exportButton=el('button','',hasPaidTools(data)?'导出日程':'导出日程 · 付费'); exportButton.onclick=openExportPanel; toolbar.append(exportButton);
     const layout = el("div", "starlane-compat-layout");
     const timelinePanel=el('div','flat-timeline-panel');
-    const onTask=(id,day,minute)=>{const task=availableTasks(data.quests||[],selectedDate).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
+    const onTask=(id,day,minute)=>{const task=availableTasks(visibleQuests(),selectedDate).find(q=>q.id===id);if(task)placeTask(task,minute,day);};
     const timeline=createVerticalTimeline({date:selectedDate,step:granularity,blocks,mode:viewMode,onDay:day=>{selectedDate=day;viewMode='day';renderPage();},
           onCreate:(day,start,end)=>{if(selectedTask){placeTask(selectedTask,start,day);return;}openEditor({date:day,start,end,title:'',type:'主线',category:parseCategories('主线')[0]?.name||'未分类',color:'gold',note:''});},
           onEdit:block=>openEditor({...block}),
@@ -254,7 +261,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       finally{refresh.disabled=false;refresh.removeAttribute('aria-busy');refresh.replaceChildren(document.createTextNode('刷新任务'));}
     };
     tray.append(refresh);
-    const list = el('div', 'starlane-task-list'), tasks = availableTasks(data.quests || [],selectedDate);
+    const list = el('div', 'starlane-task-list'), tasks = availableTasks(visibleQuests(),selectedDate);
     if (!tasks.length) list.append(el('p', '', '暂无当日完成或待排任务，可先到任务页添加。'));
     tasks.forEach(task => {
       const button = el('button', 'starlane-task-item'); button.draggable = true;
@@ -262,6 +269,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       Object.entries(taskTrayStyle(task.type)).forEach(([key,value])=>button.style.setProperty(key,value));
       const due=task.dueAt?(validDate(task.dueAt)?`${task.dueAt} 全天`:new Date(task.dueAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})):'未设时间';
       button.append(el('b', '', task.title), el('small', '', `${completed?'✓ 当日已完成 · ':''}${task.type} · ${due}`));
+      if(pendingQuestEdits.has(task.id)){button.disabled=true;button.draggable=false;button.append(el('small','','类型同步中…'));}
       button.ondragstart = event => { selectedTask = null; event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy'; };
       button.onclick = () => {
         selectedTask = task;

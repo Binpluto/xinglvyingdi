@@ -36,8 +36,8 @@ function requestBody(req) {
 
 function injectVercelEnhancements(html) {
   const assets = [
-    '<script src="/game-transport.js?v=13"></script>',
-    '<link rel="stylesheet" href="/performance-ui.css?v=13">',
+    '<script src="/game-transport.js?v=14"></script>',
+    '<link rel="stylesheet" href="/performance-ui.css?v=14">',
     '<meta name="theme-color" content="#0b5267">',
     '<meta name="mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-capable" content="yes">',
@@ -61,7 +61,7 @@ function injectVercelEnhancements(html) {
     '<script defer src="/monthly-ui.js?v=1"></script>',
     '<script defer src="/weekly-summary-ui.js?v=1"></script>',
     '<script defer src="/mobile-reminder-ui.js?v=1"></script>',
-    '<script type="module" src="/starlane-ui.js?v=13"></script>',
+    '<script type="module" src="/starlane-ui.js?v=14"></script>',
     '<script type="module" src="/guide-entry.js?v=9"></script>',
     '<script defer src="/premium-ui.js?v=4"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'

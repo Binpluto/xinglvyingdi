@@ -46,3 +46,15 @@ test('network failure during deletion returns an actionable error and clears pen
   const result=await client.fetch('/api/game',{method:'POST',body:'{"action":"deleteQuest"}'});
   assert.equal(result.status,503);assert.match((await result.json()).error,/未确认/);assert.equal(rolledBack,true);assert.equal(client.peek(),null);
 });
+test('task edit feedback starts before the request completes and has the unmodified server snapshot',async()=>{
+  const initial={...data,quests:[{id:1,title:'测试任务',detail:'说明',type:'主线'}]},gate=deferred();let feedback,settled;
+  const client=make(async(_,options={})=>{if(options.method==='POST'){await gate.promise;return Response.json({...initial,quests:[{...initial.quests[0],type:'支线'}]});}return Response.json(initial);},{onWrite:(payload,previous)=>{feedback={payload,previous};return ok=>{settled=ok;};}});
+  await client.fetch('/api/game');const saving=client.fetch('/api/game',{method:'POST',body:JSON.stringify({action:'editQuest',questId:1,title:'测试任务',detail:'说明',type:'支线'})});
+  assert.equal(feedback.previous.quests[0].type,'主线');assert.equal(feedback.payload.type,'支线');assert.equal(settled,undefined);assert.equal(client.peek(),null);
+  gate.resolve();await saving;assert.equal(settled,true);assert.equal(client.peek().quests[0].type,'支线');assert.equal(initial.quests[0].type,'主线');
+});
+test('failed task edit returns an error and restores feedback rather than reporting success',async()=>{
+  let settled;const client=make(async()=>{throw new Error('offline');},{onWrite:()=>ok=>{settled=ok;}});
+  const result=await client.fetch('/api/game',{method:'POST',body:'{"action":"editQuest","type":"日常"}'});
+  assert.equal(result.status,503);assert.match((await result.json()).error,/修改结果未确认/);assert.equal(settled,false);
+});
