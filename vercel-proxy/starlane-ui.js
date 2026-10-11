@@ -1,6 +1,6 @@
 import { availableTasks, completedOnDate, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=11';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createVerticalTimeline} from './starlane-timeline.mjs?v=12';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=15';
 import {sequenceBlocks} from './sequence-records.mjs?v=10';
 import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
 
