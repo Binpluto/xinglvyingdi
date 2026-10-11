@@ -1,4 +1,5 @@
-import {openFirstAction} from './first-action.mjs?v=16';
+import {openFirstAction} from './first-action.mjs?v=18';
+import {maybeMonthlyLaunch} from './monthly-launch.mjs?v=18';
 const sections=[
  ['营地','每天从一个明确目标出发','进入后填写今日主线、计划专注分钟和当前精力，再点“开始今日冒险”。营地可查看今日能量、任务概况、连续启程、周小结和月目标。','免费'],
  ['任务','把要做的事整理成可执行任务','点“发布新委托”填写名称与说明，选主线、支线或日常。每项任务可编辑和删除，也可批量删除。修改任务类型后，关联的时序记录会同步显示新类型。','免费'],
@@ -69,6 +70,7 @@ function openOnboarding(email){
 }
 export function installTravelerGuide(){
   if(window.__starcampGuideInstalled)return;window.__starcampGuideInstalled=true;
+  let launchData=null;window.addEventListener('starcamp:game-data',event=>{launchData=event.detail;maybeMonthlyLaunch(launchData);});window.addEventListener('focus',()=>maybeMonthlyLaunch(launchData));
   const original=window.fetch;
   window.fetch=async function(...args){const response=await original.apply(this,args);
     try{const url=new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href);const body=args[1]?.body;
@@ -81,6 +83,7 @@ export function installTravelerGuide(){
     if(nav&&!nav.querySelector('.traveler-guide-nav')){const button=el('button','nav-item traveler-guide-nav');button.append(el('span','','?'),el('small','','指南'));button.setAttribute('aria-label','旅人指南');button.onclick=openTravelerGuide;nav.append(button);}
     const email=sessionStorage.getItem('starcamp:new-user-guide');
     if(email&&document.querySelector('.app-shell,.daily-departure-page,.monthly-goal-page')&&!localStorage.getItem('starcamp:guide-seen:'+email))openOnboarding(email);
+    if(!email)maybeMonthlyLaunch(launchData||window.starcampTransport?.peek());
     if(sessionStorage.getItem('starcamp:first-action-go')&&!document.querySelector('.traveler-onboarding')){
       const monthSkip=document.querySelector('.monthly-goal-skip');if(monthSkip){monthSkip.click();return;}
       const tasks=[...document.querySelectorAll('.nav-stack .nav-item')].find(button=>button.querySelector('small')?.textContent==='任务');
