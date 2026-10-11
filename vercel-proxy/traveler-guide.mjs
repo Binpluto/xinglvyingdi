@@ -1,3 +1,4 @@
+import {openFirstAction} from './first-action.mjs?v=16';
 const sections=[
  ['营地','每天从一个明确目标出发','进入后填写今日主线、计划专注分钟和当前精力，再点“开始今日冒险”。营地可查看今日能量、任务概况、连续启程、周小结和月目标。','免费'],
  ['任务','把要做的事整理成可执行任务','点“发布新委托”填写名称与说明，选主线、支线或日常。每项任务可编辑和删除，也可批量删除。修改任务类型后，关联的时序记录会同步显示新类型。','免费'],
@@ -9,7 +10,6 @@ const sections=[
  ['日历','把日程带进任务栏','在任务页点“同步日历”。可绑定 Google 日历，或导入日历订阅链接与 ICS 文件。按页面提示授权，只导入同步日及以后的日程；需要有效付费权限。','付费'],
  ['导出与 VIP','先核对权益，再使用高级工具','在时序点“导出日程”，选择当天、本周、本月或自选日期，下载 CSV（表格统计）或 ICS（日历文件）。导出、日历导入和同步均须付费解锁；管理员维护的五个永久免费 VIP 名额可直接使用。添加手机桌面和手动记录不收费。','付费 / 永久 VIP 豁免'],
 ];
-const steps=[['欢迎来到星旅营地','先选一件今天最重要的事，再开始行动。你可以随时关闭介绍。'],['整理你的任务','主线是关键目标，支线是辅助成长，日常是习惯与生活。它们都能编辑、分类和删除。'],['用时序留下记录','把任务拖到时间轴，或手动记录。保存后对应任务自动完成，不用重复勾选。'],['了解收费范围','日历导入/同步和 CSV、ICS 导出需付费解锁。五个永久免费 VIP 名额除外，其余手动任务和时序记录免费。']];
 const el=(tag,cls,text)=>{const n=document.createElement(tag);n.className=cls;if(text)n.textContent=text;return n;};
 function mobileGuide(){
   const section=el('section','guide-mobile');section.id='guide-mobile';
@@ -61,18 +61,11 @@ export function openTravelerGuide(){
 }
 function openOnboarding(email){
   if(document.querySelector('.traveler-onboarding'))return;
-  const backdrop=el('div','traveler-onboarding'),dialog=el('section','guide-welcome-card');dialog.setAttribute('role','dialog');dialog.setAttribute('aria-modal','true');dialog.setAttribute('aria-label','新旅行者使用向导');
-  let index=0;
-  function done(){localStorage.setItem('starcamp:guide-seen:'+email,'1');sessionStorage.removeItem('starcamp:new-user-guide');backdrop.remove();
-    const toast=el('div','guide-toast','已关闭介绍。进入营地后，可随时在导航“指南”查看使用方法。');document.body.append(toast);setTimeout(()=>toast.remove(),6000);
-  }
-  function render(){dialog.replaceChildren();const close=el('button','guide-close','×');close.setAttribute('aria-label','关闭使用向导');close.onclick=done;
-    dialog.append(close,el('small','',`新旅行者向导 · ${index+1} / ${steps.length}`),el('h2','',steps[index][0]),el('p','',steps[index][1]),el('p','guide-reminder','以后有疑问，可在导航“指南”再次查看。'));
-    const actions=el('div','guide-actions'),skip=el('button','','跳过介绍');skip.onclick=done;
-    const next=el('button','primary',index===steps.length-1?'开始使用':'下一步');next.onclick=()=>{if(index===steps.length-1)done();else{index++;render();}};
-    const full=el('button','guide-full','查看完整指南');full.onclick=()=>{done();openTravelerGuide();};actions.append(skip,next);dialog.append(actions,full);
-  }
-  render();backdrop.append(dialog);document.body.append(backdrop);dialog.querySelector('button').focus();
+  function markSeen(){try{localStorage.setItem('starcamp:guide-seen:'+email,'1');sessionStorage.removeItem('starcamp:new-user-guide');}catch{}}
+  openFirstAction({email,onSkip:()=>{markSeen();const toast=el('div','guide-toast','已跳过启程三问。使用方法可随时在导航「指南」查看。');document.body.append(toast);setTimeout(()=>toast.remove(),5000);},
+    onSaved:markSeen,
+    onDone:result=>{markSeen();sessionStorage.setItem('starcamp:first-action-go','1');const event=new CustomEvent('starcamp:first-action-created',{detail:result.data,cancelable:true});window.dispatchEvent(event);if(!event.defaultPrevented)location.reload();}
+  });
 }
 export function installTravelerGuide(){
   if(window.__starcampGuideInstalled)return;window.__starcampGuideInstalled=true;
@@ -87,7 +80,12 @@ export function installTravelerGuide(){
     const nav=document.querySelector('.nav-stack');
     if(nav&&!nav.querySelector('.traveler-guide-nav')){const button=el('button','nav-item traveler-guide-nav');button.append(el('span','','?'),el('small','','指南'));button.setAttribute('aria-label','旅人指南');button.onclick=openTravelerGuide;nav.append(button);}
     const email=sessionStorage.getItem('starcamp:new-user-guide');
-    if(email&&document.querySelector('.app-shell,.daily-departure-page')&&!localStorage.getItem('starcamp:guide-seen:'+email))openOnboarding(email);
+    if(email&&document.querySelector('.app-shell,.daily-departure-page,.monthly-goal-page')&&!localStorage.getItem('starcamp:guide-seen:'+email))openOnboarding(email);
+    if(sessionStorage.getItem('starcamp:first-action-go')&&!document.querySelector('.traveler-onboarding')){
+      const monthSkip=document.querySelector('.monthly-goal-skip');if(monthSkip){monthSkip.click();return;}
+      const tasks=[...document.querySelectorAll('.nav-stack .nav-item')].find(button=>button.querySelector('small')?.textContent==='任务');
+      if(tasks){sessionStorage.removeItem('starcamp:first-action-go');tasks.click();}
+    }
   }
   let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;sync();});}).observe(document.documentElement,{childList:true,subtree:true});sync();
 }

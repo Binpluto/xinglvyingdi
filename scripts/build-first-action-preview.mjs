@@ -1,0 +1,12 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import {resolve,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {build} from 'esbuild';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..','vercel-proxy');
+const output=process.argv[2];if(!output)throw new Error('Provide an output HTML file');
+let html=await readFile(resolve(root,'onboarding-preview.html'),'utf8');
+const script=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+const result=await build({stdin:{contents:script,resolveDir:root,loader:'js'},bundle:true,write:false,format:'iife',minify:true,plugins:[{name:'local-versioned-modules',setup(b){b.onResolve({filter:/\?v=/},args=>({path:resolve(args.resolveDir,args.path.split('?')[0])}));}}]});
+const css=await readFile(resolve(root,'first-action.css'),'utf8');
+html=html.replace('<link rel="stylesheet" href="/first-action.css?v=16">',`<style>${css}</style>`).replace(/<script type="module">[\s\S]*?<\/script>/,`<script>${result.outputFiles[0].text.replace(/<\/script/gi,'<\\/script')}</script>`);
+await writeFile(output,html,{flag:'wx'});console.log(output);

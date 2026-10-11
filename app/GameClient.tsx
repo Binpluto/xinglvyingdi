@@ -10,6 +10,7 @@ import '../vercel-proxy/starlane-addons.css';
 import {hasPaidTools} from '../vercel-proxy/premium-policy.mjs';
 import {installTravelerGuide} from '../vercel-proxy/traveler-guide.mjs';
 import '../vercel-proxy/traveler-guide.css';
+import '../vercel-proxy/first-action.css';
 import {defaultTaskColor,taskTrayStyle} from '../vercel-proxy/sequence-colors.mjs';
 
 type Quest = { id: number; title: string; detail: string; reward: number; type: string; source: string; dueAt: string | null; createdAt: string; completedAt: string | null; done: number };
@@ -512,6 +513,7 @@ export default function GameClient({ identity, onLogout, onDeleteAccount }: { id
 
   useEffect(() => { void load(); }, []);
   useEffect(()=>{installTravelerGuide();},[]);
+  useEffect(()=>{const created=(event:Event)=>{const update=(event as CustomEvent<GameData>).detail;if(!update?.user||update.user.email!==identity.email)return;event.preventDefault();setData(update);setMonthGoalDismissed(true);setTab('任务');if(update.dailyDeparture){setFocusMinutes(update.dailyDeparture.focusGoalMinutes);setTimer(update.dailyDeparture.focusGoalMinutes*60);}};window.addEventListener('starcamp:first-action-created',created);return()=>window.removeEventListener('starcamp:first-action-created',created);},[identity.email]);
   useEffect(() => {
     const savedAlert = window.localStorage.getItem("starcamp-focus-alert");
     const savedAmbient = window.localStorage.getItem("starcamp-focus-ambient");
