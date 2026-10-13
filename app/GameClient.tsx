@@ -1554,6 +1554,10 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
   const blocks = data.timeTrack.blocks;
   const today = localDateKey(new Date());
   useEffect(()=>{
+    // StarLane unmounts on navigation; never reuse a previously browsed date on entry.
+    if(data.timeTrack.date!==localDateKey(new Date()))void loadTimeline(localDateKey(new Date()));
+  },[]);
+  useEffect(()=>{
     if(viewMode!=='week')return;
     let cancelled=false;setWeekStatus('读取本周日程…');setWeekBlocks([]);
     const range=dateRange(date,'week');
@@ -1626,7 +1630,8 @@ function StarLane({ data, act, loadTimeline }: { data: GameData; act: (p: Record
       <section className="starlane-task-tray">
         <h3>任务待排区</h3><p>{selectedTask ? `已选「${selectedTask.title}」，请点击轨道的开始时间。` : '当日已完成置顶；仅显示已到时间的当日及过往任务。未来任务隐藏，未设时间的最后。已完成任务可补记，不重复计奖。'}</p>
         <div className="starlane-exports"><button disabled={refreshingTasks} aria-busy={refreshingTasks} onClick={()=>void refreshTasks()}>{refreshingTasks&&<span className="sequence-refresh-spinner" aria-hidden="true"/>}{refreshingTasks?'刷新中…':'刷新任务'}</button></div><small role="status">{refreshMessage}</small>
-        <div className="starlane-task-list">{availableTasks(data.quests,date).map((task: Quest) => <button className={`starlane-task-item${completedOnDate(task,date) ? " task-completed-today" : ""}`} style={taskTrayStyle(task.type) as CSSProperties} key={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{completedOnDate(task,date) ? "✓ 当日已完成 · " : ""}{task.type} · {task.dueAt ? task.dueAt.length===10 ? `${task.dueAt} 全天` : new Date(task.dueAt).toLocaleString("zh-CN",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}) : "未设时间"}</small></button>)}{!availableTasks(data.quests,date).length && <p>暂无当日完成或待排任务，可先到任务页添加。</p>}</div>
+        <p className="sequence-touch-help">按住任务右侧 ⠿ 拖到时间轴，靠近屏幕边缘可滚动；也可点选任务后点选时间。</p>
+        <div className="starlane-task-list">{availableTasks(data.quests,date).map((task: Quest) => <button className={`starlane-task-item${completedOnDate(task,date) ? " task-completed-today" : ""}`} style={taskTrayStyle(task.type) as CSSProperties} key={task.id} data-sequence-task-id={task.id} draggable onDragStart={event => {setSelectedTask(null); event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy';}} onClick={() => {setSelectedTask(task); document.querySelector('.flat-timeline-panel')?.scrollIntoView({behavior:'smooth',block:'start'});}}><b>{task.title}</b><small>{completedOnDate(task,date) ? "✓ 当日已完成 · " : ""}{task.type} · {task.dueAt ? task.dueAt.length===10 ? `${task.dueAt} 全天` : new Date(task.dueAt).toLocaleString("zh-CN",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false}) : "未设时间"}</small><span className="sequence-drag-handle" aria-hidden="true" title="按住此处拖到时间轴">⠿</span></button>)}{!availableTasks(data.quests,date).length && <p>暂无当日完成或待排任务，可先到任务页添加。</p>}</div>
       </section>
 
         <details className="flat-sidebar-details"><summary>分类与颜色设置</summary>

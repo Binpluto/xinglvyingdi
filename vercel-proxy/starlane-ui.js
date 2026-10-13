@@ -1,6 +1,6 @@
 import { availableTasks, completedOnDate, taskSlot, downloadAuthorizedTimeline, dateRange, filterRange, shiftCalendarDate, validDate } from './starlane-data.mjs?v=11';
 import {hasPaidTools,PREMIUM_MESSAGE} from './premium-policy.mjs?v=4';
-import {createVerticalTimeline} from './starlane-timeline.mjs?v=17';
+import {createVerticalTimeline} from './starlane-timeline.mjs?v=21';
 import {sequenceBlocks} from './sequence-records.mjs?v=10';
 import {defaultTaskColor,taskTrayStyle} from './sequence-colors.mjs?v=10';
 import {overlappingBlocks,overlapKey,overlapMessage} from './overlap-policy.mjs?v=17';
@@ -17,6 +17,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
   let data = null;
   let pageOpen = false;
   let selectedDate = localDateKey(new Date());
+  let enteredOn = selectedDate;
   let granularity = 15;
   let selectedTask = null;
   let viewMode = 'day';
@@ -173,6 +174,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       if (current.timeTrack) return;
       const main = document.querySelector(".main-content");
       if (!main) return;
+      selectedDate=localDateKey(new Date());enteredOn=selectedDate;selectedTask=null;
       pageElement=el('section','starlane-compat-page');
       pageElement.addEventListener('scroll',event=>{const node=event.target;if(node instanceof HTMLElement && pageElement?.contains(node))scrollPositions.set(node,{top:node.scrollTop,left:node.scrollLeft});},true);
       pageOpen = true;
@@ -268,10 +270,12 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
     if (!tasks.length) list.append(el('p', '', '暂无当日完成或待排任务，可先到任务页添加。'));
     tasks.forEach(task => {
       const button = el('button', 'starlane-task-item'); button.draggable = true;
+      button.dataset.sequenceTaskId=String(task.id);
       const completed=completedOnDate(task,selectedDate);if(completed)button.classList.add('task-completed-today');
       Object.entries(taskTrayStyle(task.type)).forEach(([key,value])=>button.style.setProperty(key,value));
       const due=task.dueAt?(validDate(task.dueAt)?`${task.dueAt} 全天`:new Date(task.dueAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})):'未设时间';
       button.append(el('b', '', task.title), el('small', '', `${completed?'✓ 当日已完成 · ':''}${task.type} · ${due}`));
+      const handle=el('span','sequence-drag-handle','⠿');handle.title='按住此处拖到时间轴';handle.setAttribute('aria-hidden','true');button.append(handle);
       if(pendingQuestEdits.has(task.id)){button.disabled=true;button.draggable=false;button.append(el('small','','类型同步中…'));}
       button.ondragstart = event => { selectedTask = null; event.dataTransfer.setData('application/x-starcamp-task', String(task.id)); event.dataTransfer.effectAllowed = 'copy'; };
       button.onclick = () => {
@@ -281,7 +285,7 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
       };
       list.append(button);
     });
-    tray.append(list); return tray;
+    tray.append(el('p','sequence-touch-help','按住任务右侧 ⠿ 拖到时间轴，靠近屏幕边缘可滚动；也可点选任务后点选时间。'),list); return tray;
   }
   function renderCategories() {return createCategoryManager({getCategories:parseCategories,mutate:api,onSaved:()=>{renderPage();const details=document.querySelector('.starlane-task-sidebar .flat-sidebar-details');if(details)details.open=true;notify('细分分类已保存');},notify});}
   function openExportPanel() {
@@ -335,11 +339,13 @@ import {sequenceCategories,createCategoryManager} from './sequence-categories.mj
   }
   let queued = false;
   async function refreshSequence(){
-    if(!pageOpen||savingSequence||document.visibilityState!=='visible'||document.querySelector('.starlane-compat-editor-backdrop'))return;
+    if(!pageOpen||savingSequence||document.visibilityState!=='visible'||document.querySelector('.starlane-compat-editor-backdrop, .sequence-drag-ghost'))return;
+    const today=localDateKey(new Date());if(enteredOn!==today){enteredOn=today;selectedDate=today;selectedTask=null;renderPage();}
     const before=JSON.stringify(data?.quests||[]);
     try{await fetchData();if(pageOpen&&before!==JSON.stringify(data?.quests||[])&&!document.querySelector('.starlane-compat-editor-backdrop'))renderPage();}catch{}
   }
   window.addEventListener('focus',()=>void refreshSequence());
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshSequence();});
   window.setInterval(()=>void refreshSequence(),30000);
   // Delegation survives replacement of the upstream navigation by React.
   document.addEventListener('click',event=>{

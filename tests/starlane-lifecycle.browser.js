@@ -42,6 +42,7 @@ await page.getByRole('button',{name:'任务',exact:true}).click();
 await expect(page.locator('.starlane-compat-page')).toHaveCount(0);
 await expect(page.locator('.main-content')).toContainText('后台刷新内容');
 hold=true;
+await page.evaluate(()=>window.dispatchEvent(new Event('starcamp:data-invalidated')));
 const pending=new Promise(resolve=>requestArrived=resolve);
 await page.getByRole('button',{name:'时序',exact:true}).click();await pending;
 await page.getByRole('button',{name:'任务',exact:true}).click();

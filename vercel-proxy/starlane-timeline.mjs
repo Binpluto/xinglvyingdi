@@ -1,5 +1,6 @@
 import {dateRange,shiftCalendarDate} from './starlane-data.mjs';
 import {overlapLayout} from './overlap-policy.mjs?v=17';
+import {installTaskTouchDrag} from './sequence-touch-drag.mjs?v=21';
 
 const label=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
 const colors={jade:'#3f8d7a',gold:'#d09c3f',azure:'#4e86bd',coral:'#d97862',violet:'#8068b2',rose:'#bd6588',amber:'#bf7637',slate:'#607680'};
@@ -26,6 +27,7 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
   document.addEventListener('dragstart',dragStart);document.addEventListener('dragend',dragEnd);
   const minute=(event,lane)=>{const rect=lane.getBoundingClientRect();return minuteAtRatio((event.clientY-rect.top)/rect.height,step,Number(lane.dataset.from),Number(lane.dataset.to)-Number(lane.dataset.from));};
   const place=(node,start,end,lane)=>{const clip=clippedInterval(start,end,Number(lane.dataset.from),Number(lane.dataset.to));node.hidden=!clip;if(clip){node.style.top=`${clip.top}%`;node.style.height=`${clip.height}%`;}};
+  const previewTask=(lane,event,title)=>{if(dropPreview?.parentElement!==lane){clearDrop();dropPreview=el('div','full-timeline-preview');dropPreview.append(el('span','full-timeline-hint'));lane.append(dropPreview);}const start=minute(event,lane),end=Math.min(1440,start+Math.max(step,30));place(dropPreview,start,end,lane);dropPreview.firstChild.textContent=`${title||'任务'} · ${label(start)}–${label(end)}`;};
   function gesture(event,lane,day,block,operation){
     if(event.button!==0)return;event.preventDefault();event.stopPropagation();cancelActive?.();
     const origin=minute(event,lane),originY=event.clientY,originX=event.clientX;let start=block?.start??origin,end=block?.end??origin+step,moved=false;
@@ -47,7 +49,7 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
     const layout=overlapLayout(blocks.filter(b=>b.date===day));
     const lane=el('div','full-timeline-lane');Object.assign(lane.dataset,{date:day,from:String(from),to:String(to)});laneElements.push(lane);lane.style.setProperty('--step-percent',`${step/(to-from)*100}%`);lane.style.setProperty('--hour-percent',`${60/(to-from)*100}%`);lane.setAttribute('aria-label',`${day} ${label(from)}–${label(to)} 时间轴`);
     lane.onpointerdown=e=>{if(!e.target.closest('.full-time-block'))gesture(e,lane,day,null,'create');};
-    lane.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-starcamp-task')){e.preventDefault();e.dataTransfer.dropEffect='copy';if(dropPreview?.parentElement!==lane){clearDrop();dropPreview=el('div','full-timeline-preview');dropPreview.append(el('span','full-timeline-hint'));lane.append(dropPreview);}const start=minute(e,lane),end=Math.min(1440,start+Math.max(step,30));place(dropPreview,start,end,lane);dropPreview.firstChild.textContent=`${draggedTitle||'任务'} · ${label(start)}–${label(end)}`;}};
+    lane.ondragover=e=>{if(e.dataTransfer.types.includes('application/x-starcamp-task')){e.preventDefault();e.dataTransfer.dropEffect='copy';previewTask(lane,e,draggedTitle);}};
     lane.ondragleave=e=>{if(!lane.contains(e.relatedTarget))clearDrop();};
     lane.ondrop=e=>{e.preventDefault();clearDrop();if(e.dataTransfer.types.includes('application/x-starcamp-task'))onTask(Number(e.dataTransfer.getData('application/x-starcamp-task')),day,minute(e,lane));};
     blocks.filter(b=>b.date===day&&clippedInterval(b.start,b.end,from,to)).forEach(block=>{
@@ -60,6 +62,7 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
       row.append(button);if(block.end<=to)row.append(resize);lane.append(row);
     });if(week)lanes.append(lane);else{const column=el('div','full-timeline-column'),track=el('div','full-timeline-half-track');column.append(hourLabels(from,to));track.append(lane);column.append(track);lanes.append(column);}
   });body.append(lanes);panel.append(body);
+  const disposeTouch=installTaskTouchDrag({panel,lanes:laneElements,onPreview:previewTask,onClear:clearDrop,onDrop:(id,lane,event)=>onTask(id,lane.dataset.date,minute(event,lane))});
   panel.append(el('p','full-timeline-note',`刻度 ${step} 分钟 · 拖选空白新增 / 拖动色块移动 / 点击编辑${week?'':' · 跨中午记录分列显示，仍为一条记录'}`));
   let disposed=false;
   const fit=()=>{if(disposed||!panel.isConnected)return;const top=body.getBoundingClientRect().top+window.scrollY;const mobile=window.innerWidth<=800;
@@ -68,6 +71,6 @@ export function createVerticalTimeline({date,step,blocks,mode='day',onCreate,onT
     panel.querySelectorAll('.full-time-block').forEach(row=>{const h=row.getBoundingClientRect().height;row.classList.toggle('short-block',h<15);row.classList.toggle('compact-block',h<34);});
   };
   const observer=new ResizeObserver(fit);observer.observe(panel);window.addEventListener('resize',fit);window.visualViewport?.addEventListener('resize',fit);requestAnimationFrame(fit);
-  panel.dispose=()=>{disposed=true;cancelActive?.();clearDrop();document.removeEventListener('dragstart',dragStart);document.removeEventListener('dragend',dragEnd);observer.disconnect();window.removeEventListener('resize',fit);window.visualViewport?.removeEventListener('resize',fit);};
+  panel.dispose=()=>{disposed=true;cancelActive?.();disposeTouch();clearDrop();document.removeEventListener('dragstart',dragStart);document.removeEventListener('dragend',dragEnd);observer.disconnect();window.removeEventListener('resize',fit);window.visualViewport?.removeEventListener('resize',fit);};
   return panel;
 }
