@@ -44,7 +44,7 @@ export async function pilotMutation(gateway,bridge,body){
   const affected=body.questIds||[body.questId];if(!data.quests.some(q=>affected.includes(q.id)&&isPilotQuest(q)))return gateway.act(body);
   const {events}=await bridge('snapshot'),ids=body.action==='batchDeleteQuests'?body.questIds||[]:[body.questId];
   const linked=events.filter(e=>ids.includes(e.quest_id));
-  let completing=null;
+  let completing=null,editing=null;
   if(body.action==='completeQuest'&&linked.length){const e=linked[0],q=data.quests.find(q=>q.id===e.quest_id);if(!q)throw new Error('关联任务不存在');const date=body.clientDate||new Intl.DateTimeFormat('en-CA',{timeZone:e.time_zone||'Europe/Berlin',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
     if(q.done){await bridge('confirm-completion',{eventId:e.id,questId:q.id,date,completedAt:q.completedAt});return mergedPilot(data,events);}if(!visibleEvent(e))throw new Error('日历任务已取消或暂停，不能计分');
     const claim=await bridge('begin-completion',{eventId:e.id,questId:q.id,date});if(!claim.mayComplete)throw new Error('上一次完成结果仍待核对，请刷新；不会再次发放积分');completing={e,date};
@@ -57,9 +57,11 @@ export async function pilotMutation(gateway,bridge,body){
     if(body.action==='batchDeleteQuests'){body={...body,questIds:ids.filter(id=>!linked.some(e=>e.quest_id===id))};if(!body.questIds.length)return mergedPilot(data,(await bridge('snapshot')).events);}
   }
   if(body.action==='editQuest'&&linked.length){const e=linked[0],q=data.quests.find(q=>q.id===e.quest_id);if(!q)throw new Error('关联任务不存在');
-    await bridge('override',{eventId:e.id,title:body.title,detail:body.detail});body={...body,detail:marker(e)+'\n'+String(body.detail||'').slice(0,135)};
+    if(typeof body.title!=='string'||body.title.trim().length<2||body.title.trim().length>80||!['主线','支线','日常'].includes(body.type)||(body.detail!==undefined&&typeof body.detail!=='string'))throw new Error('请填写有效的任务名称、说明和类型');
+    editing={eventId:e.id,title:body.title.trim(),detail:body.detail||''};body={...body,title:editing.title,detail:marker(e)+'\n'+editing.detail.slice(0,135)};
   }
   try{data=await gateway.act(body);}catch(error){if(!completing)throw error;data=await gateway.get();if(!data.quests.find(q=>q.id===completing.e.quest_id)?.done)throw new Error('完成结果未确认，暂不重试以避免重复积分');}
   if(completing){const q=data.quests.find(q=>q.id===completing.e.quest_id);if(!q?.done)throw new Error('完成状态未确认，请刷新后核对');await bridge('confirm-completion',{eventId:completing.e.id,questId:q.id,date:completing.date,completedAt:q.completedAt});}
+  if(editing)await bridge('override',editing);
   return mergedPilot(data,(await bridge('snapshot')).events);
 }

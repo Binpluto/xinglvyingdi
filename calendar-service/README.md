@@ -3,11 +3,11 @@
 ## 当前状态
 
 - 独立 Neon 项目 `lucky-salad-95439949` / 数据库 `starcamp_calendar_test` / AWS Frankfurt。
-- 已通过 Neon SQL Editor 成功执行 `../calendar-bridge/migrations/001_calendar_bridge_test.sql`。
-- 复核结果：`calendar_bridge_test` 中 9 张表，用户、事件、连接记录均为 0。未导入真实用户数据。
+- 已通过 Neon SQL Editor 成功执行 `migrations/001_calendar_bridge_test.sql` 和账号限定关联迁移 `migrations/002_owner_pilot.sql`。
+- 初始化时复核为 9 张表、0 条用户/日程/连接；之后用户主动授权并同步了选定日历。当前新增 `pilot_links` 关联表，范围和上线边界见 `OWNER-PILOT.md`，不要把初始化快照当作当前数据量。
 - 本目录已部署到独立 Vercel 项目 `starcamp-calendar-test`：https://starcamp-calendar-test.vercel.app 。项目 ID `prj_gY04WhguJmbDZnnYRKuyhZucUJOf`。没有改动旧 Sites、现有 Vercel 生产项目或生产 Git 分支。
 - 已创建独立 Google OAuth 客户端 `Starcamp Calendar Test`（ID `1021862776749-qvbjte2tondvc7toib5ont8ulasjcuhd.apps.googleusercontent.com`），已核对回调为 `https://starcamp-calendar-test.vercel.app/api/google-calendar/callback`。
-- 六项环境变量均已由后台安全保存并部署生效；没有读取密钥值到聊天或源码。`DATABASE_URL` 已通过创建临时 OAuth 状态的真实数据库操作验证。`GOOGLE_CLIENT_SECRET` 的正确性仍需用户完成授权后，在 token 交换阶段验证。
+- 六项环境变量均已由后台安全保存并部署生效；没有读取密钥值到聊天或源码。数据库连接、Google 授权回调、令牌刷新和多日历读取已通过真实验证。另有服务端 `OWNER_PILOT_BRIDGE_KEY` 支持仅所有者账号的签名桥接，不包含在源码中。
 - Vercel 的 Production 环境标签仅指**这个新测试项目**的稳定主域名，不是原星旅营地正式项目。部署保护保持启用；CLI 检查通过 Vercel 自带授权机制进行，不向浏览器公开绕过令牌。
 
 ## 安全边界
