@@ -1,4 +1,5 @@
 import {hasPaidTools,PREMIUM_MESSAGE} from '../premium-policy.mjs';
+import {isOwner,mutation,augment} from '../calendar-pilot-server.mjs';
 const UPSTREAM_ORIGIN = "https://starcamp-life-adventure.tianyuanzhaodg.chatgpt.site";
 const PUBLIC_ORIGIN = "https://starcamp-life-adventure.vercel.app";
 
@@ -70,6 +71,7 @@ function injectVercelEnhancements(html) {
     '<script type="module" src="/gentle-entry.js?v=20"></script>',
     '<script defer src="/premium-ui.js?v=4"></script>',
     '<script defer src="/pwa-register.js?v=1"></script>'
+    ,'<script defer src="/calendar-owner-ui.js?v=22"></script>'
   ].join("");
   return html.includes("</head>") ? html.replace("</head>", `${assets}</head>`) : `${assets}${html}`;
 }
@@ -88,6 +90,12 @@ export default async function handler(req, res) {
   let action='';
   if(req.method==='POST'&&routePath==='/api/game'){
     try{action=(typeof req.body==='string'||Buffer.isBuffer(req.body)?JSON.parse(String(req.body)):req.body)?.action||'';}catch{}
+  }
+  if(req.headers['x-starcamp-calendar-pilot']==='1'&&['completeQuest','editQuest','deleteQuest','batchDeleteQuests'].includes(action)&&await isOwner(req)){
+    res.setHeader('Cache-Control','private, no-store');
+    if(req.headers.origin!==PUBLIC_ORIGIN){res.statusCode=403;return res.json({error:'请求来源无效'});}
+    try{return res.json(await mutation(req,typeof req.body==='string'||Buffer.isBuffer(req.body)?JSON.parse(String(req.body)):req.body));}
+    catch(e){res.statusCode=e.status||503;return res.json({error:e.message||'日历关联任务暂不可操作，请刷新后重试'});}
   }
   if(['importCalendar','syncGoogleCalendar'].includes(action)||['/api/google-calendar/connect','/api/google-calendar/callback'].includes(routePath)){
     res.setHeader('Cache-Control','private, no-store');
@@ -119,6 +127,7 @@ export default async function handler(req, res) {
   res.statusCode = upstream.status;
 
   const contentType = upstream.headers.get("content-type") || "";
+  if(routePath==='/api/game'&&upstream.ok&&contentType.includes('application/json')){res.setHeader('Cache-Control','private, no-store');return res.json(await augment(await upstream.json()));}
   if (contentType.includes("text/html")) {
     res.send(injectVercelEnhancements(await upstream.text()));
     return;

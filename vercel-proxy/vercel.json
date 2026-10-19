@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
+  "functions": {"api/proxy.mjs":{"maxDuration":60},"api/calendar-pilot.mjs":{"maxDuration":60},"api/sequence-record.mjs":{"maxDuration":60}},
   "routes": [
     {
       "handle": "filesystem"
