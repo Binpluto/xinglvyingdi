@@ -9,7 +9,7 @@ export default async function handler(req,res){
     if(req.method==='GET'){return res.json({enabled:true,...await bridge('saved'),pilot:data.calendarPilot});}
     if(req.method!=='POST'||req.headers.origin!==productionOrigin){res.statusCode=403;return res.json({error:'请求来源无效'});}
     const input=typeof req.body==='string'?JSON.parse(req.body):req.body;
-    if(input?.op==='link'){const result=await materializeEvents(g,bridge,{limit:3});return res.json({results:result.results});}
+    if(input?.op==='link'){const result=await materializeEvents(g,bridge,{limit:3,calendarName:typeof input.calendarName==='string'?input.calendarName:null});return res.json({results:result.results});}
     if(input?.op==='sync'){return res.json(await bridge('sync',{input:{calendarId:input.calendarId}}));}
     if(input?.op==='calendars')return res.json(await bridge('calendars'));
     if(input?.op==='selection')return res.json(await bridge('selection',{input:input.input}));

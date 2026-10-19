@@ -14,10 +14,10 @@ export function mergedPilot(data,events){
 }
 export function unavailablePilot(data){if(data?.user?.email!==PILOT_OWNER)return data;return {...data,quests:data.quests.filter(q=>!isPilotQuest(q)||q.done),calendarPilot:{enabled:true,unavailable:true}};}
 export function possibleDuplicate(data,e){return data.quests.some(q=>!isPilotQuest(q)&&q.title===e.title&&q.dueAt&&(q.dueAt===e.dueAt||Date.parse(q.dueAt)===Date.parse(e.dueAt)));}
-export async function materializeEvents(gateway,bridge,{limit=5}={}){
+export async function materializeEvents(gateway,bridge,{limit=5,calendarName=null}={}){
   let data=await gateway.get();if(data?.user?.email!==PILOT_OWNER)throw new Error('pilot_not_allowed');
   const {events}=await bridge('snapshot');const results=[];
-  for(const e of events.filter(visibleEvent)){
+  for(const e of events.filter(e=>visibleEvent(e)&&(!calendarName||e.calendar_name===calendarName))){
     let task=e.quest_id?data.quests.find(q=>q.id===e.quest_id):null;
     if(e.link_state==='suppressed')continue;
     if(!task){
