@@ -2,10 +2,12 @@ import {createHmac,createHash} from 'node:crypto';
 import {PILOT_OWNER,mergedPilot,unavailablePilot,pilotMutation,isPilotQuest} from './calendar-pilot-core.mjs';
 export const productionOrigin='https://starcamp-life-adventure.vercel.app';
 const upstream='https://starcamp-life-adventure.tianyuanzhaodg.chatgpt.site';
-export const enabled=()=>process.env.CALENDAR_OWNER_PILOT==='enabled'&&Boolean(process.env.OWNER_PILOT_BRIDGE_KEY);
+export const enabled=()=>['enabled','readonly'].includes(process.env.CALENDAR_OWNER_PILOT)&&Boolean(process.env.OWNER_PILOT_BRIDGE_KEY);
+export const writable=()=>process.env.CALENDAR_OWNER_PILOT==='enabled';
 function sessionCookie(req){return (req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('starcamp_session='))||'';}
 export async function bridge(op,input={}){
   if(!enabled())throw new Error('日历试运行尚未开启');
+  if(!writable()&&!['snapshot','saved','calendars','events'].includes(op))throw new Error('日历试运行当前为只读保护模式');
   const body=JSON.stringify({actor:PILOT_OWNER,op,...input}),stamp=String(Date.now());
   const signature=createHmac('sha256',process.env.OWNER_PILOT_BRIDGE_KEY).update(`${stamp}\n${body}`).digest('hex');
   const response=await fetch('https://starcamp-calendar-test.vercel.app/api/owner-bridge',{method:'POST',headers:{'Content-Type':'application/json','x-starcamp-timestamp':stamp,'x-starcamp-signature':signature},body,redirect:'error',signal:AbortSignal.timeout(45000)});
@@ -17,6 +19,6 @@ export async function isOwner(req){
   if(!enabled())return false;const cookie=sessionCookie(req);if(!cookie)return false;const key=createHash('sha256').update(cookie).digest('hex'),cached=authCache.get(key);if(cached&&Date.now()-cached.at<15000)return cached.owner;
   const r=await fetch(upstream+'/api/auth',{headers:{cookie},redirect:'manual',signal:AbortSignal.timeout(10000)});const d=r.ok?await r.json():{};const owner=d?.user?.email===PILOT_OWNER;if(authCache.size>100)authCache.clear();authCache.set(key,{owner,at:Date.now()});return owner;
 }
-export async function augment(data){if(!enabled()||data?.user?.email!==PILOT_OWNER||!Array.isArray(data.quests))return data;try{return mergedPilot(data,(await bridge('snapshot')).events);}catch{return unavailablePilot(data);}}
-export async function mutation(req,body){const g=gateway(req);return pilotMutation(g,bridge,body);}
-export async function sequenceGateway(req){const g=gateway(req);if(req.headers['x-starcamp-calendar-pilot']!=='1'||!await isOwner(req))return g;return {get:async()=>augment(await g.get()),act:body=>pilotMutation(g,bridge,body)};}
+export async function augment(data){if(!enabled()||data?.user?.email!==PILOT_OWNER||!Array.isArray(data.quests))return data;try{const merged=mergedPilot(data,(await bridge('snapshot')).events);merged.calendarPilot.readOnly=!writable();return merged;}catch{return unavailablePilot(data);}}
+export async function mutation(req,body){const g=gateway(req);if(!writable()){const data=await g.get(),ids=body.questIds||[body.questId];if(data.quests.some(q=>ids.includes(q.id)&&isPilotQuest(q)))throw new Error('日历任务当前处于只读保护模式');return augment(await g.act(body));}return augment(await pilotMutation(g,bridge,body));}
+export async function sequenceGateway(req){const g=gateway(req);if(req.headers['x-starcamp-calendar-pilot']!=='1'||!await isOwner(req))return g;return {get:async()=>{const data=await augment(await g.get());let input=req.body;try{if(typeof input==='string')input=JSON.parse(input);}catch{}if(!writable()&&data.quests.some(q=>q.id===input?.questId&&q.calendarPilotEventId))throw new Error('日历任务当前处于只读保护模式');return data;},act:body=>mutation(req,body)};}

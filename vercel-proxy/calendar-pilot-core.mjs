@@ -41,6 +41,7 @@ export async function materializeEvents(gateway,bridge,{limit=5,calendarName=nul
 }
 export async function pilotMutation(gateway,bridge,body){
   let data=await gateway.get();if(data?.user?.email!==PILOT_OWNER)return gateway.act(body);
+  const affected=body.questIds||[body.questId];if(!data.quests.some(q=>affected.includes(q.id)&&isPilotQuest(q)))return gateway.act(body);
   const {events}=await bridge('snapshot'),ids=body.action==='batchDeleteQuests'?body.questIds||[]:[body.questId];
   const linked=events.filter(e=>ids.includes(e.quest_id));
   let completing=null;

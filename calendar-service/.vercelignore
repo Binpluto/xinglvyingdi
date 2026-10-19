@@ -1,0 +1,6 @@
+tests/
+README.md
+.env.example
+.env*
+.vercel/
+node_modules/

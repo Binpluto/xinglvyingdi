@@ -6,8 +6,8 @@
   if(!latest?.calendarPilot?.enabled||latest.user?.email!=='pluto.hanna@gmail.com')return;
   const host=document.querySelector('.quest-card.enriched-quests');if(!host||host.querySelector('.owner-calendar-pilot'))return;
   const bar=el('section');bar.className='owner-calendar-pilot';bar.style.cssText='padding:14px 18px;border:1px solid #b8d5c5;border-radius:14px;margin:12px 0;background:#eff7ee;color:#315c52;display:flex;gap:14px;align-items:center;flex-wrap:wrap';
-  const label=el('span',latest.calendarPilot.unavailable?'多日历试运行暂不可用，已有完成历史保留':'多日历试运行 · 仅你的账号可见');
-  const button=el('button','管理并同步多日历');button.onclick=open;button.style.cssText='padding:8px 14px;border:0;border-radius:8px;background:#315c52;color:white';bar.append(label,button);host.prepend(bar);
+  const label=el('span',latest.calendarPilot.unavailable?'多日历试运行暂不可用，已有完成历史保留':latest.calendarPilot.readOnly?'多日历试运行 · 只读保护模式':'多日历试运行 · 仅你的账号可见');
+  const button=el('button','管理并同步多日历');button.disabled=Boolean(latest.calendarPilot.readOnly);button.onclick=open;button.style.cssText='padding:8px 14px;border:0;border-radius:8px;background:#315c52;color:white';bar.append(label,button);host.prepend(bar);
  }
  async function open(){
   if(panel)return;const backdrop=el('div');backdrop.style.cssText='position:fixed;inset:0;background:#1238;z-index:20000;display:grid;place-items:center;padding:16px';panel=backdrop;
